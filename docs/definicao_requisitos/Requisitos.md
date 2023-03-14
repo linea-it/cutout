@@ -69,6 +69,7 @@ Usuario quer gerar varios cutouts pode ser para uma mesma coordenada (bandas dif
 - Job deve ter alguma tolerancia a falha, exemplo falhar alguns cutouts e continuar o job, ou o job falha mas permitir recomeçar aproveitando os cutouts já gerados.
 - Separar o processamento entre cutouts que envolvem uma unica imagem, dos cutouts que estão na borda que envolve mais de uma imagem nestes casos é possivel ter problemas com a quantidade de memoria necessária, dependendo da implementação e local onde o job é executado.
 - Notificação por email nos Async Jobs
+- Legendas nos cutouts png ( sobre a imagem ou em uma borda )
 
 ## Tecnologias
 
