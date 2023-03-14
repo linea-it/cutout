@@ -1,0 +1,24 @@
+# RA      DEC  size_arcmin band request
+# To test this file, download the following tiles
+# (g, r, and i bands):
+# DES0219-1041
+# DES0222-1041
+# DES0225-1041
+# DES0221-0958
+# DES0224-0958.
+# Use the following service:
+# https://desportal2.cosmology.illinois.edu/
+# to download full FITS image of tiles.
+# Extract the *.fits.fz files to *.fits files
+# using FITSIO and command:
+# funpack tile_name.fits.fz
+35.23676 -10.33269 10. g FITS
+35.446312 -10.0285 10. g FITS
+36.15801 -10.33579 2. g FITS
+35.68961  -10.1948 2. g FITS
+35.237410 -10.3350 10. r FITS
+35.23676 -10.33269 10. gri PNG
+35.446312 -10.0285 10. gri PNG
+36.15801 -10.33579 2. gri PNG
+35.68961  -10.1948 2. gri PNG
+35.237410 -10.3350 10. gri PNG
