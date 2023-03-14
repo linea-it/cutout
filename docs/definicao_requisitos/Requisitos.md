@@ -10,29 +10,34 @@ Cutout geramente são imagens pequenas de uma area do ceu, podendo ser em format
 
 ## Sobre os formatos de imagens
 
-    - Fits é um formato de dados que permite processamento/analise. As imagens tem diferentes bandas que podem ser combinadas. Arquivos com tamanho consideravel, é necessário carregar o arquivo todo na memória para manipulalo. Não é possivel visualizar no brownser.
+   **Fits**: é um formato de dados que permite processamento/analise. As imagens tem diferentes bandas que podem ser combinadas. Arquivos com tamanho consideravel, é necessário carregar o arquivo todo na memória para manipulalo. Não é possivel visualizar no brownser.
 
-    - Png formato de imagem convencional, gerado a partir de 3 ou mais fits em bandas diferentes no caso de cutouts coloridos. Não permite Analise mas pode ser processado como redimensionamento, adicionar texto ou legendas. Possivel visualizar no brownser.
+   **Png**: formato de imagem convencional, gerado a partir de 3 ou mais fits em bandas diferentes no caso de cutouts coloridos. Não permite Analise mas pode ser processado como redimensionamento, adicionar texto ou legendas. Possivel visualizar no brownser.
 
 ## Casos de Usos. 
-    * Usuário pode ser um individuo, um script ou uma aplicação interna do LIneA.
 
-1 - Real Time Job
-    Usuario quer gerar um cutout para uma coordenada especifica.
-    - Faz uma requisição com suas credencias para a API passando como parametro survey, RA, Dec, Size, Formato (Fits, Png), algoritimo, banda.
-    - Cutout Service autentica o usuario, registra a solicitação, valida os parametros, checa se é possivel atender o pedido em tempo habil (calculo de tempo baseado no tamanho do cutout ou outros fatores utilizando o histórico de execuções.)
-    - Em caso positivo, processa e retorna o cutout como resultado da requisição. 
-    - Caso a requisição não atenda os critérios de real time ou tenha alguma inconsistencia nos parametros retorna mensagem clara explicando o problema e sugestão de solução se possivel.
-    - Cutout Service, atualiza o registro da solicitação com status, tempo, tamanho, etc.
-    - Usuario no retorno da requisição, pode estar salvando o resultado como arquivo (download) ou pode estar exibindo a imagem direto no jupyter notebook ou navegador.
+*Usuário* pode ser um individuo, um script ou uma aplicação interna do LIneA.
 
-2 - Async Time Job
-    Usuario quer gerar varios cutouts pode ser para uma mesma coordenada (bandas diferentes, formatos diferentes, tamanhos, algoritimos, surveys?) 1 coordenada para N cutouts. Ou uma lista de coordenadas e diferentes parametros, N coordenadas para N Cutouts.
-    - Faz uma requisição com suas credencias para a API passando dois conjuntos de parametros para um referente a geração das imagem ( survey, RA, Dec, Size, Formato (Fits, Png), algoritimo, banda.) e outro a lista/array de coordenadas (RA e DEC ou ID, RA e DEC sendo o id forncedico pelo usuario que serve para associar as imagens as coordenadas)
-    - Cutout Service autentica o usuario, registra a solicitação, valida os parametros, faz a estimativa de tempo considerando a posição na fila e prioridades Inclui o job na fila e retorna ao usuario o id do job e as estimativas, ou mensagem de erro/validação.
-    - Usuario com o id do job vai consultar a API para saber o status/andamento do job. Em algum momento o status vai ser concluido e nesta resposta deve ter as informações necessárias para o usuario fazer o download dos resultados e um summary da execução do job.
-    - O download dos resultados pode ser um unico arquivo compactado (dependendo do tamanho) ou download individual de cada cutout. 
-    * O resultado pode ser disponibilizado via Download ou em um diretório da estrutura do LIneA (Home do usuario por exemplo para acesso pelo Jupyter Notebook ou outro diretório no caso das aplicações.)
+### Real Time Job
+
+Usuario quer gerar um cutout para uma coordenada especifica.
+
+- Faz uma requisição com suas credencias para a API passando como parametro survey, RA, Dec, Size, Formato (Fits, Png), algoritimo, banda.
+- Cutout Service autentica o usuario, registra a solicitação, valida os parametros, checa se é possivel atender o pedido em tempo habil (calculo de tempo baseado no tamanho do cutout ou outros fatores utilizando o histórico de execuções.)
+- Em caso positivo, processa e retorna o cutout como resultado da requisição. 
+- Caso a requisição não atenda os critérios de real time ou tenha alguma inconsistencia nos parametros retorna mensagem clara explicando o problema e sugestão de solução se possivel.
+- Cutout Service, atualiza o registro da solicitação com status, tempo, tamanho, etc.
+- Usuario no retorno da requisição, pode estar salvando o resultado como arquivo (download) ou pode estar exibindo a imagem direto no jupyter notebook ou navegador.
+
+### Async Time Job
+    
+Usuario quer gerar varios cutouts pode ser para uma mesma coordenada (bandas diferentes, formatos diferentes, tamanhos, algoritimos, surveys?) 1 coordenada para N cutouts. Ou uma lista de coordenadas e diferentes parametros, N coordenadas para N Cutouts.
+
+- Faz uma requisição com suas credencias para a API passando dois conjuntos de parametros para um referente a geração das imagem ( survey, RA, Dec, Size, Formato (Fits, Png), algoritimo, banda.) e outro a lista/array de coordenadas (RA e DEC ou ID, RA e DEC sendo o id forncedico pelo usuario que serve para associar as imagens as coordenadas)
+- Cutout Service autentica o usuario, registra a solicitação, valida os parametros, faz a estimativa de tempo considerando a posição na fila e prioridades Inclui o job na fila e retorna ao usuario o id do job e as estimativas, ou mensagem de erro/validação.
+- Usuario com o id do job vai consultar a API para saber o status/andamento do job. Em algum momento o status vai ser concluido e nesta resposta deve ter as informações necessárias para o usuario fazer o download dos resultados e um summary da execução do job.
+- O download dos resultados pode ser um unico arquivo compactado (dependendo do tamanho) ou download individual de cada cutout. 
+* O resultado pode ser disponibilizado via Download ou em um diretório da estrutura do LIneA (Home do usuario por exemplo para acesso pelo Jupyter Notebook ou outro diretório no caso das aplicações.)
 
 
 ## Requisitos
