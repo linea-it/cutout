@@ -33,6 +33,8 @@ Extract the *.fits.fz files to *.fits files using __[FITSIO](https://heasarc.gsf
 
 `funpack tile_name.fits.fz`
 
+`for z in *.fits.fz; do funpack "$z"; done`
+
 and store the FITS files in folder called 'tiles'.
 
 After that, run the code:
