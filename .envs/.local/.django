@@ -1,0 +1,21 @@
+# General
+# ------------------------------------------------------------------------------
+USE_DOCKER=yes
+IPYTHONDIR=/app/.ipython
+DJANGO_DEBUG=True
+
+# Redis
+# ------------------------------------------------------------------------------
+REDIS_URL=redis://redis:6379/0
+
+# Celery
+# ------------------------------------------------------------------------------
+CELERY_BROKER_URL=redis://redis:6379/0
+# Flower
+CELERY_FLOWER_USER=GssjaNAiMDRnqwLAsLrXmRLVKPADVyvC
+CELERY_FLOWER_PASSWORD=vvEHorf3cBVSss0jQXSwndS0KwWu6YQ0y9RVKui0cqbnmZ0HudfWxUH6c4ynwf7G
+
+# DATABASE
+# ------------------------------------------------------------------------------
+# DATABASE_URL=postgres://user:pass@localhost/dbname
+DATABASE_URL=postgres://postgres:postgres@postgres/cutout
