@@ -279,3 +279,9 @@ cutout/media/
 .env
 .envs/*
 !.envs/.local/
+
+data/*.tar.gz
+data/results/*.png
+data/results/*.fits
+data/tiles/*.fz
+data/tiles/*.fits
