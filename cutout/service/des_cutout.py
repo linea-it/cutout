@@ -1,6 +1,7 @@
-#!/usr/bin/env python3
-
-import glob
+import subprocess
+import warnings
+from pathlib import Path
+from typing import List
 
 import numpy as np
 from astropy import units as u
@@ -9,211 +10,204 @@ from astropy.io import fits
 from astropy.nddata.utils import Cutout2D
 from astropy.visualization import make_lupton_rgb
 from astropy.wcs import WCS
+from astropy.wcs.wcs import FITSFixedWarning
+
+from cutout.service.base_cutout import BaseCutout
+
+warnings.simplefilter("ignore", category=FITSFixedWarning)
 
 
-def get_fits_data(RA, DEC, size, tiles, band, path):
-    """Access data (image and wcs) from FITS files.
+class DesCutout(BaseCutout):
+    # TODO: Melhorar a forma de armazenar e ler a lista de tiles.
+    tile_list_path: Path = Path("/app/cutout/service/dr2_tiles.csv")
+    path_to_fits: Path = Path("/data/tiles")
+    tmp_path: Path = Path("/data/tmp")
 
-    Parameters
-    ----------
-    RA : float
-        Equatorial coordinate of the center of cutout (degrees).
-    DEC : float
-        Equatorial coordinate of the center of cutout (degrees).
-    size : float
-        Size of cutout (arcmin).
-    tiles : list
-        List with the tiles where the vertices of cutout reside.
-        Sorted by: Upper left, Upper right, Lower right, Lower left.
-    band : str
-        Band of cutout.
-    path : str
-        Path to folder with the FITS files.
-    """
+    def get_fits_data(self, ra: float, dec: float, size_arcmin: float, band: str):
+        # Calcular os vertices do cutout
+        verts = self.get_cutout_verts(ra, dec, size_arcmin)
 
-    tile_un, ind = np.unique(tiles[:], return_index=True)
-    tile_un = tile_un[np.argsort(ind)]
+        # A partir dos vertices identificar os arquivos fits e ler os dados
+        compressed_fits_files = self.get_fits_files(verts, band)
 
-    if len(tile_un) == 1:
-        data_, wcs_ = cutout_fits(RA, DEC, size, tiles[0], band, path)
-        return (data_, wcs_)
+        fits_files = []
+        # Descompactar os arquivos fits
+        for compressed in compressed_fits_files:
+            fits_filename = compressed.name.split(".fz")[0]
+            uncompressed = self.tmp_path.joinpath(fits_filename)
+            if not uncompressed.exists():
+                self.funpack(compressed, uncompressed)
+            fits_files.append(uncompressed)
 
-    elif len(tile_un) == 2:
-        data_1, wcs_1 = cutout_fits(RA, DEC, size, tile_un[0], band, path, "trim")
-        data_2, wcs_2 = cutout_fits(RA, DEC, size, tile_un[1], band, path, "trim")
+        if len(fits_files) == 1:
+            data_, wcs_ = self.read_fits_partial_data(fits_files[0], ra, dec, size_arcmin, mode="trim")
+            return (data_, wcs_)
 
-        if np.shape(data_1)[1] < np.shape(data_1)[0]:
-            # side-by-side
-            data_1 = data_1[:, :-118]
-            data_2 = data_2[:, 118:]
-            data_ = np.concatenate((data_1, data_2), axis=1)
-            return (data_, wcs_1)
+        elif len(fits_files) == 2:
+            data_1, wcs_1 = self.read_fits_partial_data(fits_files[0], ra, dec, size_arcmin, mode="trim")
+            data_2, wcs_2 = self.read_fits_partial_data(fits_files[1], ra, dec, size_arcmin, mode="trim")
 
-        else:
-            # top-bottom
-            data_1 = data_1[114:, :]
-            data_2 = data_2[:-114, :]
-            data_ = np.concatenate((data_2, data_1), axis=0)
-            return (data_, wcs_2)
+            if np.shape(data_1)[1] < np.shape(data_1)[0]:
+                # side-by-side
+                data_1 = data_1[:, :-118]
+                data_2 = data_2[:, 118:]
+                data_ = np.concatenate((data_1, data_2), axis=1)
+                return (data_, wcs_1)
 
-    elif len(tile_un) == 3:
-        data_1, wcs_1 = cutout_fits(RA, DEC, size, tile_un[0], band, path, "trim")
-        data_2, wcs_2 = cutout_fits(RA, DEC, size, tile_un[1], band, path, "trim")
-        data_3, wcs_3 = cutout_fits(RA, DEC, size, tile_un[2], band, path, "trim")
+            else:
+                # top-bottom
+                data_1 = data_1[114:, :]
+                data_2 = data_2[:-114, :]
+                data_ = np.concatenate((data_2, data_1), axis=0)
+                return (data_, wcs_2)
 
-        # Biggest at bottom:
-        if np.shape(data_1)[1] < np.shape(data_3)[1]:
-            data_12 = np.concatenate((data_1[118:, :-118], data_2[118:, 118:]), axis=1)
-            data_ = np.concatenate((data_3[:-118, :], data_12[:, 0 : np.shape(data_3)[1]]), axis=0)
-        # Biggest at top:
-        else:
-            data_23 = np.concatenate((data_2[:-118, 118:], data_3[:-118, :-118]), axis=1)
-            data_ = np.concatenate((data_23, data_1[118:, 0 : np.shape(data_23)[1]]), axis=0)
-        return (data_, wcs_3)
+        elif len(fits_files) == 3:
+            data_1, wcs_1 = self.read_fits_partial_data(fits_files[0], ra, dec, size_arcmin, mode="trim")
+            data_2, wcs_2 = self.read_fits_partial_data(fits_files[1], ra, dec, size_arcmin, mode="trim")
+            data_3, wcs_3 = self.read_fits_partial_data(fits_files[2], ra, dec, size_arcmin, mode="trim")
 
+            # Biggest at bottom:
+            if np.shape(data_1)[1] < np.shape(data_3)[1]:
+                data_12 = np.concatenate((data_1[118:, :-118], data_2[118:, 118:]), axis=1)
+                data_ = np.concatenate((data_3[:-118, :], data_12[:, 0 : np.shape(data_3)[1]]), axis=0)
+            # Biggest at top:
+            else:
+                data_23 = np.concatenate((data_2[:-118, 118:], data_3[:-118, :-118]), axis=1)
+                data_ = np.concatenate((data_23, data_1[118:, 0 : np.shape(data_23)[1]]), axis=0)
+            return (data_, wcs_3)
 
-def cutout_lupton(g_data, r_data, i_data, minimum, stretch, Q, filename):
-    """Make RGB image and saves as png or jpg files using Lupton method.
-    TODO: Improve quality of image for cutout with saturated data.
+    def read_fits_partial_data(self, filepath, ra, dec, size_arcmin, mode="partial"):
+        """Return data (image array and wcs) from tile.
 
-    Parameters
-    ----------
-    g_data : array
-        Cutout data from first band.
-    r_data : array
-        Cutout data from second band.
-    i_data : array
-        Cutout data from third band.
-    filename : str
-        Name of file to be saved.
-    """
+        Parameters
+        ----------
+        ra : float
+            Equatorial coordinate of center of tile.
+        dec : float
+            Equatorial coordinate of center of tile.
+        size_arcmin : float
+            Size of cutout in arcmin.
+        tile_name : str
+            Name of tile where total or part of the cutout image resides.
+        band : str
+            Band of image.
+        path : str
+            Path to folder where the FITS files are stored.
+        mode : str, optional
+            Mode of cutout. See:
+            https://docs.astropy.org/en/stable/api/astropy.nddata.Cutout2D.html
+            By default set to 'partial'.
 
-    rgb_default = make_lupton_rgb(i_data, r_data, g_data, minimum=minimum, stretch=stretch, Q=Q, filename=filename)
+        Returns
+        -------
+        arrays
+            Two arrays, one with image data and other with WCS astropy object.
+        """
+        # Esta funcao me parece ser especifica para o DES
+        # Por que está lendo os Headers do HDU 1
+        # e os dados do HDU 0
+        # Outros surveis podem ter essas informações em HDUs diferentes.
+        with fits.open(str(filepath)) as hdul:
+            wcs = WCS(hdul[1].header)
+            cutout = Cutout2D(
+                hdul[0].data,
+                (SkyCoord(ra=ra * u.degree, dec=dec * u.degree, frame="icrs")),
+                size_arcmin * u.arcmin,
+                wcs=wcs,
+                mode=mode,
+            )
 
+        return cutout.data, cutout.wcs.to_header()
 
-def write_cutout_file(data, wcs, filename):
-    """Saves cutout file.
+    def get_fits_files(self, verts: SkyCoord, band: str) -> List[Path]:
+        # Tile paths para os fits que contem os dados para esta coordenada.
+        tile_paths = self.get_tiles(verts)
 
-    Parameters
-    ----------
-    data : array
-        Array with image data.
-    wcs : astropy object
-        Information about world coordinate system of cutout.
-    filename : str
-        Name of file to be saved.
-    """
-    hdu = fits.PrimaryHDU(data)
-    hdu.header.update(wcs)
-    hdu.writeto(filename, overwrite=True)
+        fits_files = []
+        for p in tile_paths:
+            # Filenames montado a partir do path
+            parts = p.split("/")
+            filename = f"{parts[2]}_{parts[1]}{parts[3]}_{band}.fits.fz"
+            filepath = self.path_to_fits.joinpath(p).joinpath(filename)
 
+            fits_files.append(filepath)
 
-def cutout_fits(RA_center, DEC_center, size_arcmin, tile_name, band, path, mode="partial"):
-    """Return data (image array and wcs) from tile.
+        return fits_files
 
-    Parameters
-    ----------
-    RA_center : float
-        Equatorial coordinate of center of tile.
-    DEC_center : float
-        Equatorial coordinate of center of tile.
-    size_arcmin : float
-        Size of cutout in arcmin.
-    tile_name : str
-        Name of tile where total or part of the cutout image resides.
-    band : str
-        Band of image.
-    path : str
-        Path to folder where the FITS files are stored.
-    mode : str, optional
-        Mode of cutout. See:
-        https://docs.astropy.org/en/stable/api/astropy.nddata.Cutout2D.html
-        By default set to 'partial'.
+    def get_tiles(self, verts: SkyCoord) -> List[str]:
+        """Read information about tiles.
+        TODO: read more information about the vertices of tiles in
+        order to have a correct overlap in case cutouts are in the
+        edge of tiles.
 
-    Returns
-    -------
-    arrays
-        Two arrays, one with image data and other with WCS astropy object.
-    """
-    file_name_ = glob.glob(path + "/" + tile_name + "_*_" + band + ".fits")
-    file_name = file_name_[0]
-    f = fits.open(file_name)
-    wcs = WCS(f[1].header)
+        Parameters
+        ----------
+        verts : SkyCoord astropy object
+            Object with information about coordinates of vertices.
+        Returns
+        -------
+        list
+            List of tiles where the vertices of cutout reside.
+        """
+        ra_ll, dec_ll, ra_ur, dec_ur = np.loadtxt(
+            self.tile_list_path, usecols=(1, 2, 3, 4), delimiter=";", unpack=True, skiprows=1
+        )
+        tile_names, paths = np.loadtxt(
+            self.tile_list_path, usecols=(0, 5), delimiter=";", dtype=str, unpack=True, skiprows=1
+        )
 
-    cutout1 = Cutout2D(
-        fits.getdata(file_name, ext=0),
-        (SkyCoord(ra=RA_center * u.degree, dec=DEC_center * u.degree, frame="icrs")),
-        size_arcmin * u.arcmin,
-        wcs=wcs,
-        mode=mode,
-    )
+        ra = verts.ra.deg
+        dec = verts.dec.deg
 
-    return cutout1.data, cutout1.wcs.to_header()
-
-
-def cutout_verts(RA_center, DEC_center, size_arcmin):
-    """Defines the position of vertices in each cutout.
-    See the pos_angle where the vertices are sorted.
-
-    Parameters
-    ----------
-    RA_center : float
-        Equatorial coordinate of center of tile.
-    DEC_center : float
-        Equatorial coordinate of center of tile.
-    size_arcmin : float
-        Size (length of each side) of cutout, in arcmin.
-
-    Returns
-    -------
-    SkyCoord astropy object
-        Location of vertices of cutout.
-    """
-    pos_angle = [45, 315, 225, 135] * u.deg
-    RA, DEC = [], []
-    for i, j in enumerate(RA_center):
-        c1 = SkyCoord(RA_center[i] * u.deg, DEC_center[i] * u.deg, frame="icrs")
-        sep = 0.5 * np.sqrt(2.0) * size_arcmin[i] * u.arcmin
-        RA.append(list(c1.directional_offset_by(pos_angle, sep).ra.deg))
-        DEC.append(list(c1.directional_offset_by(pos_angle, sep).dec.deg))
-    return SkyCoord(RA * u.deg, DEC * u.deg, frame="icrs")
-
-
-def tiles_from_cat(cat, file_path):
-    """Read information about tiles.
-    TODO: read more information about the vertices of tiles in
-    order to have a correct overlap in case cutouts are in the
-    edge of tiles.
-
-    Parameters
-    ----------
-    cat : SkyCoord astropy object
-        Object with information about coordinates of vertices.
-    file_path : str
-        File with tile's information.
-
-    Returns
-    -------
-    list
-        List of tiles where the vertices of cutout reside.
-    """
-    ra_ll, dec_ll, ra_ul, dec_ul, ra_ur, dec_ur, ra_lr, dec_lr = np.loadtxt(
-        file_path, usecols=(9, 10, 11, 12, 13, 14, 15, 16), delimiter=",", unpack=True
-    )
-    tile_names = np.loadtxt(file_path, usecols=(2), delimiter=",", dtype=str, unpack=True)
-
-    ra = cat.ra.deg
-    dec = cat.dec.deg
-
-    tile_match = []
-
-    for i in range(np.shape(ra)[0]):
         idx_ = []
         for j in range(4):
-            idx_.append(
-                np.argwhere((ra_ll < ra[i][j]) & (ra_ur > ra[i][j]) & (dec_ll < dec[i][j]) & (dec_ur > dec[i][j]))[0][
-                    0
-                ]
-            )
-        tile_match.append([tile_names[k] for k in idx_])
-    return tile_match
+            idx_.append(np.argwhere((ra_ll < ra[j]) & (ra_ur > ra[j]) & (dec_ll < dec[j]) & (dec_ur > dec[j]))[0][0])
+
+        tile_match = [tile_names[k] for k in idx_]
+        tile_paths = [paths[k] for k in idx_]
+
+        # Tiles unicas usando np
+        # tile_un, ind = np.unique(tile_match[:], return_index=True)
+        # tile_un = tile_un[np.argsort(ind)]
+        # return tile_un
+
+        # Retorna os tilename unicas usando set
+        # return list(set(tile_match))
+
+        return list(set(tile_paths))
+
+    def funpack(self, compressed: Path, uncompressed: Path):
+        # funpack -O <uncompressed> <compressed>
+        process = subprocess.Popen(["funpack", "-O", str(uncompressed), str(compressed)])
+        process.wait()
+
+
+# if __name__ == "__main__":
+#     cutouts = [
+#         {"ra": 36.30911, "dec": -10.18749, "size": 2.0, "band": "g", "format": "fits"},  # 1 - Tile
+#         {"ra": 36.30911, "dec": -10.18749, "size": 2.0, "band": "gri", "format": "png"},  # 1 - Tile
+#         {"ra": 36.15801, "dec": -10.33579, "size": 2.0, "band": "g", "format": "fits"},  # 2 - Tile
+#         {"ra": 36.15801, "dec": -10.33579, "size": 2.0, "band": "gri", "format": "png"},  # 2 - Tile
+#         # {"ra": 35.23676, "dec": -10.33269, "size": 10.0, "band": "g", "format": "fits"},  # 3 - Tile
+#     ]
+
+#     dc = DesCutout()
+
+#     for c in cutouts:
+#         if c["format"] == "fits":
+#             filename = "{:.5f}_{:.5f}_{}.fits".format(round(c["ra"], 5), round(c["dec"], 5), c["band"])
+#             resultfile = Path("/data/results").joinpath(filename)
+
+#             result = dc.single_cutout_fits(
+#                 ra=c["ra"], dec=c["dec"], size_arcmin=c["size"], band=c["band"], path=resultfile
+#             )
+#             print(result)
+
+#         if c["format"] == "png":
+#             filename = "{:.5f}_{:.5f}.png".format(round(c["ra"], 5), round(c["dec"], 5))
+#             resultfile = Path("/data/results").joinpath(filename)
+
+#             result = dc.single_cutout_png(
+#                 ra=c["ra"], dec=c["dec"], size_arcmin=c["size"], band=c["band"], path=resultfile
+#             )
+#             print(result)

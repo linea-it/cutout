@@ -217,7 +217,7 @@ if __name__ == "__main__":
     cutout_2_tile = {"ra": 36.15801, "dec": -10.33579, "size": 2.0, "band": "g"}
     cutout_3_tiles = {"ra": 35.23676, "dec": -10.33269, "size": 10.0, "band": "g"}
 
-    cutout = cutout_2_tile
+    cutout = cutout_3_tiles
 
     ra = cutout["ra"]
     dec = cutout["dec"]
