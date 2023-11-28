@@ -1,7 +1,7 @@
 import subprocess
 import warnings
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 from astropy import units as u
@@ -23,7 +23,7 @@ class DesCutout(BaseCutout):
     path_to_fits: Path = Path("/data/tiles")
     tmp_path: Path = Path("/data/tmp")
 
-    def get_fits_data(self, ra: float, dec: float, size_arcmin: float, band: str):
+    def get_fits_data(self, ra: float, dec: float, size_arcmin: float, band: str) -> Tuple:
         # Calcular os vertices do cutout
         verts = self.get_cutout_verts(ra, dec, size_arcmin)
 

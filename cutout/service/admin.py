@@ -1,5 +1,6 @@
 from django.contrib import admin
-from service.models import JobRequest
+
+from cutout.service.models import JobRequest
 
 
 @admin.register(JobRequest)

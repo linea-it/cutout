@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from service.models import JobRequest
+
+from cutout.service.models import JobRequest
 
 
 class JobRequestSerializer(serializers.ModelSerializer[JobRequest]):

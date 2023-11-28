@@ -323,6 +323,8 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_RENDERER_CLASSES": ("rest_framework.renderers.JSONRenderer",),  # Disable Brownsable API
+    "URL_FORMAT_OVERRIDE": None,  # Disable format parameter behavior https://www.django-rest-framework.org/api-guide/format-suffixes/#query-parameter-formats
 }
 
 # django-cors-headers - https://github.com/adamchainz/django-cors-headers#setup
