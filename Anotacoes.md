@@ -1,14 +1,16 @@
 # Anotações Cutout Service
 
 ## Serviço/Infra
-
-- [x] Documentação do Endpoint usando OpenApi schema.
-- [X] Tratar valores do Parametro POS xtype Circle, Range e  Polygon.
 - [x] Instalar/Configurar as dependencias nos containers
 - [x] Organizar o diretórios de dados do serviço.
-- [x] Classe Base para Cutots de forma que outros surveys possam ser adicioandos.
-- [] Filenames Unicos para os resultados ???
+- [x] Documentação do Endpoint usando OpenApi schema.
+
+- [X] Tratar valores do Parametro POS xtype Circle, Range e  Polygon.
+- [x] Classe Base para Cutuots de forma que outros surveys possam ser adicioandos.
 - [] SODA parametro band está em numerico, usamos letras e isso é importante no caso do des por causa dos arquivos. procurar um parametro alternativo para representar as bandas com letras.
+
+
+- [] Filenames Unicos para os resultados ???
 - [] Quanto tempo os arquivos gerados por um job ficam disponiveis para download, antes do garbage collector remover.
 - [] CONFIRMAR se no metodo lupton sempre vai ser usado como gri, a ordem é fixa? como fica para outros surveys.
 - [] Quanto tempo os arquivos fits extraidos ficam disponiveis.
