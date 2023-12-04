@@ -11,7 +11,6 @@ License: MIT
 
 Tiles do DES para teste: [Sample Tiles](https://scienceserver.linea.org.br/data/cutout_des_sample_tiles.tar.gz)
 
-
 ## Settings
 
 Moved to [settings](http://cookiecutter-django.readthedocs.io/en/latest/settings.html).
@@ -36,6 +35,14 @@ Moved to [settings](http://cookiecutter-django.readthedocs.io/en/latest/settings
       python manage.py createsuperuser
 
 For convenience, you can keep your normal user logged in on Chrome and your superuser logged in on Firefox (or similar), so that you can see how the site behaves for both kinds of users.
+
+### Pre commit
+
+Running pre-commit checks:
+
+    ```bash
+    pre-commit
+    ```
 
 ### Type checks
 
