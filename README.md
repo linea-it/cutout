@@ -1,80 +1,111 @@
-# LIneA Cutout Service 
+# cutout
 
-[Requisitos](docs/definicao_requisitos/Requisitos.md)
+LIneA Cutout Service
 
-Tiles do DES para teste: [Sample Tiles](https://scienceserver.linea.org.br/data/cutout_des_sample_tiles.tar.gz) 
+[![Built with Cookiecutter Django](https://img.shields.io/badge/built%20with-Cookiecutter%20Django-ff69b4.svg?logo=cookiecutter)](https://github.com/cookiecutter/cookiecutter-django/)
+[![Black code style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/ambv/black)
 
-## Desenvolvimento
+License: MIT
 
-Este repositóro está configurado com devcontainer podendo ser utilizado com vscode + extensão devcontainer.
+[Requisitos](exemplo_adriano/docs/definicao_requisitos/Requisitos.md)
 
-quando utilizado com devcontainer todas as dependencias e extensões já estão configuradas. 
+Tiles do DES para teste: [Sample Tiles](https://scienceserver.linea.org.br/data/cutout_des_sample_tiles.tar.gz)
 
-Clone do repositório
+
+## Settings
+
+Moved to [settings](http://cookiecutter-django.readthedocs.io/en/latest/settings.html).
+
+## Development URLs
+
+- Home: <http://localhost:8000>
+- Admin: <http://localhost:8000/admin/>
+- API REST: <http://localhost:8000/api/>
+- MailHog (emails enviados pela aplicação): <http://127.0.0.1:8025/>
+- Celery Flower: <http://localhost:5555>
+- Project Docs : <http://localhost:9000>
+
+## Basic Commands
+
+### Setting Up Your Users
+
+- To create a **normal user account**, just go to Sign Up and fill out the form. Once you submit it, you'll see a "Verify Your E-mail Address" page. Go to your console to see a simulated email verification message. Copy the link into your browser. Now the user's email should be verified and ready to go.
+
+- To create a **superuser account**, use this command:
+
+      python manage.py createsuperuser
+
+For convenience, you can keep your normal user logged in on Chrome and your superuser logged in on Firefox (or similar), so that you can see how the site behaves for both kinds of users.
+
+### Type checks
+
+Running type checks with mypy:
+
+    mypy cutout
+
+### Test coverage
+
+To run the tests, check your test coverage, and generate an HTML coverage report:
+
+    coverage run -m pytest
+    coverage html
+    open htmlcov/index.html
+
+#### Running tests with pytest
+
+    pytest
+
+### Live reloading and Sass CSS compilation
+
+Moved to [Live reloading and SASS compilation](https://cookiecutter-django.readthedocs.io/en/latest/developing-locally.html#sass-compilation-live-reloading).
+
+### Celery
+
+This app comes with Celery.
+
+To run a celery worker:
 
 ```bash
-git clone https://github.com/linea-it/cutout.git
+cd cutout
+celery -A config.celery_app worker -l info
 ```
 
-Acesse a pasta e abra com vscode
+Please note: For Celery's import magic to work, it is important _where_ the celery commands are run. If you are in the same folder with _manage.py_, you should be right.
+
+To run [periodic tasks](https://docs.celeryq.dev/en/stable/userguide/periodic-tasks.html), you'll need to start the celery beat scheduler service. You can start it as a standalone process:
 
 ```bash
-cd cutout && code .
+cd cutout
+celery -A config.celery_app beat
 ```
 
-Na primeira execução a extensão devcontainer vai perguntar se deseja fazer o build do container, aceite fazer o build ou aperte F1 e execute o comando `Rebuild and open in container` o vscode vai criar o container e abrir o repositório dentro dele. 
+or you can embed the beat service inside a worker with the `-B` option (not recommended for production use):
 
-Estando dentro do container é necessário fazer o download dos dados que serão usados para teste. 
-acesse a pasta /workspaces/cutout/tiles e execute o script `download_sample_tiles.sh`
+```bash
+cd cutout
+celery -A config.celery_app worker -B -l info
+```
 
-Este script vai fazer o download de algumas imagens do DES e descompactar no diretório tiles. 
+### Email Server
 
-com as imagens baixadas e descompactadas o ambiente está pronto. 
+In development, it is often nice to be able to see emails that are being sent from your application. For that reason local SMTP server [MailHog](https://github.com/mailhog/MailHog) with a web interface is available as docker container.
 
-Execute o script de teste `cutout.py` na raiz do repositório `/workspaces/cutout`
-Os cutouts gerados ficam na pasta tiles.
+Container mailhog will start automatically when you will run all docker containers.
+Please check [cookiecutter-django Docker documentation](http://cookiecutter-django.readthedocs.io/en/latest/deployment-with-docker.html) for more details how to start all containers.
 
+With MailHog running, to view messages that are sent by your application, open your browser and go to `http://127.0.0.1:8025`
 
----
-# Cutout
+### Sentry
 
-This is a project to produce cutouts in astronomical images, mainly for Dark
-Energy Survey tiles.
+Sentry is an error logging aggregator service. You can sign up for a free account at <https://sentry.io/signup/?code=cookiecutter> or download and host it yourself.
+The system is set up with reasonable defaults, including 404 logging and integration with the WSGI application.
 
-## Project Description
+You must set the DSN url in production.
 
-The code was developed to start from a table (txt file) with information about the
-center of cutout (position of target), size (in arcmin), band and request's type
-('FITS' for cutouts in FITS files and PNG for RGB images as PNG files).
+## Deployment
 
-## How to Install and Run the Project
+The following details how to deploy this application.
 
-The project was developed in Python 3.X.
-Requested packages are Numpy 1.20.3 and Astropy 5.1.
+### Docker
 
-## How to Use the Project
-
-Basically clone the repository, download FITS images (g, r and i bands) from the following tiles:
-
-DES0219-1041
-DES0222-1041
-DES0225-1041
-DES0221-0958
-DES0224-0958.
-
-Use the __[desportal](https://desportal2.cosmology.illinois.edu/)__ to download full FITS image of tiles.
-
-[Install Funpack](https://command-not-found.com/funpack)
-Extract the *.fits.fz files to *.fits files using __[FITSIO](https://heasarc.gsfc.nasa.gov/fitsio/)__ and command:
-
-`funpack tile_name.fits.fz`
-
-`for z in *.fits.fz; do funpack "$z"; done`
-
-and store the FITS files in folder called 'tiles'.
-
-After that, run the code:
-
-`python cutout.py`
-
-The cutouts will be produced in the same folder of the tiles.
+See detailed [cookiecutter-django Docker documentation](http://cookiecutter-django.readthedocs.io/en/latest/deployment-with-docker.html).
