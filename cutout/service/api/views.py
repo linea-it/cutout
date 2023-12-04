@@ -209,15 +209,19 @@ class SyncCutoutView(APIView):
         if params["id"] == "des_dr2":
             pos_params = self.parse_pos_param(params["pos"])
             pos_params = pos_params[0]
-            band = params.get("band", "g")
 
-            allowed_bands = ["g", "r", "i", "z", "Y"]
-            if band not in allowed_bands:
-                raise ParseError(f"Band parameter must be one of {', '.join(allowed_bands)}")
+            band = params.get("band", "g")
+            # TODO: png coloridas com banda fixa gri.
+            if format == "png":
+                band = "gri"
+            else:
+                allowed_bands = ["g", "r", "i", "z", "Y"]
+                if band not in allowed_bands:
+                    raise ParseError(f"Band parameter must be one of {', '.join(allowed_bands)}")
 
             if pos_params["shape"] == "circle":
-                filename = "{:.5f}_{:.5f}_{}.fits".format(
-                    round(pos_params["ra"], 5), round(pos_params["dec"], 5), band
+                filename = "{:.5f}_{:.5f}_{}.{}".format(
+                    round(pos_params["ra"], 5), round(pos_params["dec"], 5), band, format
                 )
                 filepath = Path("/data/results").joinpath(filename)
 

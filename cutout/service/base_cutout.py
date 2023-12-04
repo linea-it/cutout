@@ -41,9 +41,9 @@ class BaseCutout(ABC):
             fits_data[b] = data
 
         self.write_cutout_lupton(
-            fits_data["g"],
-            fits_data["r"],
             fits_data["i"],
+            fits_data["r"],
+            fits_data["g"],
             minimum=0.05,
             stretch=10,
             q=0.5,
@@ -74,6 +74,7 @@ class BaseCutout(ABC):
         """
         if overwrite and filepath.exists():
             filepath.unlink()
+        print(f"TESTE")
         make_lupton_rgb(
             image_r=image_r, image_g=image_g, image_b=image_b, minimum=minimum, stretch=stretch, Q=q, filename=filepath
         )
