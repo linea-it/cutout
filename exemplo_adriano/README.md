@@ -1,14 +1,14 @@
-# LIneA Cutout Service 
+# LIneA Cutout Service
 
 [Requisitos](docs/definicao_requisitos/Requisitos.md)
 
-Tiles do DES para teste: [Sample Tiles](https://scienceserver.linea.org.br/data/cutout_des_sample_tiles.tar.gz) 
+Tiles do DES para teste: [Sample Tiles](https://scienceserver.linea.org.br/data/cutout_des_sample_tiles.tar.gz)
 
 ## Desenvolvimento
 
 Este repositóro está configurado com devcontainer podendo ser utilizado com vscode + extensão devcontainer.
 
-quando utilizado com devcontainer todas as dependencias e extensões já estão configuradas. 
+quando utilizado com devcontainer todas as dependencias e extensões já estão configuradas.
 
 Clone do repositório
 
@@ -22,14 +22,14 @@ Acesse a pasta e abra com vscode
 cd cutout && code .
 ```
 
-Na primeira execução a extensão devcontainer vai perguntar se deseja fazer o build do container, aceite fazer o build ou aperte F1 e execute o comando `Rebuild and open in container` o vscode vai criar o container e abrir o repositório dentro dele. 
+Na primeira execução a extensão devcontainer vai perguntar se deseja fazer o build do container, aceite fazer o build ou aperte F1 e execute o comando `Rebuild and open in container` o vscode vai criar o container e abrir o repositório dentro dele.
 
-Estando dentro do container é necessário fazer o download dos dados que serão usados para teste. 
+Estando dentro do container é necessário fazer o download dos dados que serão usados para teste.
 acesse a pasta /workspaces/cutout/tiles e execute o script `download_sample_tiles.sh`
 
-Este script vai fazer o download de algumas imagens do DES e descompactar no diretório tiles. 
+Este script vai fazer o download de algumas imagens do DES e descompactar no diretório tiles.
 
-com as imagens baixadas e descompactadas o ambiente está pronto. 
+com as imagens baixadas e descompactadas o ambiente está pronto.
 
 Execute o script de teste `cutout.py` na raiz do repositório `/workspaces/cutout`
 Os cutouts gerados ficam na pasta tiles.

@@ -1,10 +1,8 @@
 from django.conf import settings
-from django.contrib.staticfiles.urls import staticfiles_urlpatterns
-from django.urls import include, path
+from django.urls import path
 from rest_framework.routers import DefaultRouter, SimpleRouter
 
-from cutout.service.api.views import CutoutView, JobRequestViewSet, SyncCutoutView
-from cutout.users.api.views import UserViewSet
+from cutout.service.api.views import CutoutView, SyncCutoutView
 
 if settings.DEBUG:
     router = DefaultRouter()

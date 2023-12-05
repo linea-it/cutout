@@ -2,7 +2,7 @@
 sudo apt-get update && sudo apt-get install -y libcfitsio-bin --no-install-recommends \
 && sudo rm -rf /var/lib/apt/lists/* \
 && sudo apt-get purge -y \
-&& pip install --upgrade pip && pip install --user -r requirements.txt 
+&& pip install --upgrade pip && pip install --user -r requirements.txt
 
 
 # Exemplo de Instalação de pacotes: https://www.ianlewis.org/en/creating-smaller-docker-images

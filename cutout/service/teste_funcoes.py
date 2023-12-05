@@ -1,4 +1,3 @@
-import glob
 from pathlib import Path
 
 import numpy as np
@@ -248,7 +247,7 @@ if __name__ == "__main__":
     # Usando 3 bandas, primeiro faz 3 cutouts fits em g, r, i
     # Depois gera a png.
     result_path = Path("/data/results")
-    filename = "{:.5f}_{:.5f}.png".format(round(ra, 5), round(dec, 5))
+    filename = f"{round(ra, 5):.5f}_{round(dec, 5):.5f}.png"
     filepath = result_path.joinpath(filename)
     if filepath.exists():
         filepath.unlink()

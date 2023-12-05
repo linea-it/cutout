@@ -1,19 +1,14 @@
-import mimetypes
 from pathlib import Path
-from typing import Dict, List
 
 from django.http import FileResponse
 from django.utils.encoding import escape_uri_path
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view, inline_serializer
-from rest_framework import authentication, generics, mixins, permissions, status, viewsets
-from rest_framework.decorators import api_view, permission_classes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from rest_framework import status
 from rest_framework.exceptions import ParseError
-from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 
-from cutout.service.des_cutout import DesCutout
 from cutout.service.models import JobRequest
 from cutout.service.tasks import des_cutout_circle
 
@@ -38,7 +33,6 @@ class JobRequestViewSet(ModelViewSet):
         return serializer.save(owner=owner)
 
 
-from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 
@@ -175,7 +169,7 @@ class SyncCutoutView(APIView):
             yield l[i : i + n]
 
     # def create_task(self, params):
-    def parse_pos_param(self, pos: str) -> List[Dict]:
+    def parse_pos_param(self, pos: str) -> list[dict]:
         shape = pos.split()[0]
         pos = pos.replace(shape, "")
         shape = shape.lower()

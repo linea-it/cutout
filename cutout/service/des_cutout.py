@@ -1,14 +1,12 @@
 import subprocess
 import warnings
 from pathlib import Path
-from typing import List, Tuple
 
 import numpy as np
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.nddata.utils import Cutout2D
-from astropy.visualization import make_lupton_rgb
 from astropy.wcs import WCS
 from astropy.wcs.wcs import FITSFixedWarning
 
@@ -23,7 +21,7 @@ class DesCutout(BaseCutout):
     path_to_fits: Path = Path("/data/tiles")
     tmp_path: Path = Path("/data/tmp")
 
-    def get_fits_data(self, ra: float, dec: float, size_arcmin: float, band: str) -> Tuple:
+    def get_fits_data(self, ra: float, dec: float, size_arcmin: float, band: str) -> tuple:
         # Calcular os vertices do cutout
         verts = self.get_cutout_verts(ra, dec, size_arcmin)
 
@@ -119,7 +117,7 @@ class DesCutout(BaseCutout):
 
         return cutout.data, cutout.wcs.to_header()
 
-    def get_fits_files(self, verts: SkyCoord, band: str) -> List[Path]:
+    def get_fits_files(self, verts: SkyCoord, band: str) -> list[Path]:
         # Tile paths para os fits que contem os dados para esta coordenada.
         tile_paths = self.get_tiles(verts)
 
@@ -134,7 +132,7 @@ class DesCutout(BaseCutout):
 
         return fits_files
 
-    def get_tiles(self, verts: SkyCoord) -> List[str]:
+    def get_tiles(self, verts: SkyCoord) -> list[str]:
         """Read information about tiles.
         TODO: read more information about the vertices of tiles in
         order to have a correct overlap in case cutouts are in the

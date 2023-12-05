@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Tuple, Union
 
 import numpy as np
 from astropy import units as u
@@ -11,7 +10,7 @@ from astropy.visualization import make_lupton_rgb
 
 class BaseCutout(ABC):
     def cutout_circle(
-        self, ra: float, dec: float, size_arcmin: float, band: str, format: str, path: Union[Path, str]
+        self, ra: float, dec: float, size_arcmin: float, band: str, format: str, path: Path | str
     ) -> Path:
         if isinstance(path, str):
             path = Path(path)
@@ -54,7 +53,7 @@ class BaseCutout(ABC):
         return path
 
     @abstractmethod
-    def get_fits_data(self, ra: float, dec: float, size_arcmin: float, band: str) -> Tuple:
+    def get_fits_data(self, ra: float, dec: float, size_arcmin: float, band: str) -> tuple:
         pass
 
     def write_cutout_lupton(self, image_r, image_g, image_b, minimum, stretch, q, filepath, overwrite=True):

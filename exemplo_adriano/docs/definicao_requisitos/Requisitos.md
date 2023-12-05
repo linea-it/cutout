@@ -2,7 +2,7 @@
 
 # Cutout Service
 
-Microserviço com o objetivo de dar aos usuários acesso a recortes de imagens dos surveys mantidos pelo LIneA. 
+Microserviço com o objetivo de dar aos usuários acesso a recortes de imagens dos surveys mantidos pelo LIneA.
 
 Cutout geramente são imagens pequenas de uma area do ceu, podendo o arquivo final ser em formato Fits, Jpg ou Png.
 
@@ -14,7 +14,7 @@ Cutout geramente são imagens pequenas de uma area do ceu, podendo o arquivo fin
 
    **Png** ou **Jpg**: formato de imagem convencional para visualização, sendo geralmente a combinação RGB de 3 ou mais fits em bandas diferentes no caso de cutouts coloridos. Não permite análise mas pode ser processado como redimensionamento, adicionar texto ou legendas. Passivel de visualização no browser.
 
-## Casos de Usos. 
+## Casos de Usos.
 
 *Usuário* pode ser um individuo, um script ou uma aplicação interna do LIneA.
 
@@ -26,19 +26,19 @@ Usuario quer gerar um cutout para uma coordenada específica.
 
 - Faz uma requisição com suas credencias para a API passando como parametro survey, RA, Dec, Size, Formato (Fits, Png), algoritmo para combinação de cores, banda.
 - Cutout Service autentica o usuario, registra a solicitação, valida os parametros, checa se é possivel atender o pedido em tempo hábil (cálculo de tempo baseado no tamanho do cutout ou outros fatores utilizando o histórico de execuções).
-- Em caso positivo, processa e retorna o cutout como resultado da requisição. 
+- Em caso positivo, processa e retorna o cutout como resultado da requisição.
 - Caso a requisição não atenda os critérios de real time ou tenha alguma inconsistência nos parâmetros retorna mensagem clara explicando o problema e sugestão de solução, se possivel.
 - Cutout Service atualiza o registro da solicitação com status, tempo, tamanho, etc.
 - Usuário no retorno da requisição, pode estar salvando o resultado como arquivo (download) ou pode estar exibindo a imagem direto no jupyter notebook ou navegador.
 
 ### Async Time Job
-    
+
 No caso do usuário querer gerar varios cutouts para uma mesma coordenada (bandas diferentes, formatos diferentes, tamanhos, algoritimos, ou surveys) ou uma mesma coordenada para vários cutouts. Ou ainda uma lista de coordenadas e diferentes parametros.
 
 - Faz uma requisição com suas credencias para a API passando dois conjuntos de parametros referente a geração das imagens (survey, RA, Dec, Size, Formato (Fits, Png), algoritmo, banda) e outro parâmetro como a lista de coordenadas (RA e DEC ou ID, RA e DEC sendo o id forncedico pelo usuário que serve para associar as imagens às coordenadas);
 - Cutout Service autentica o usuário, registra a solicitação, valida os parâmetros, faz a estimativa de tempo considerando a posição na fila e prioridades. Inclui o job na fila e retorna ao usuário o id do job e as estimativas, ou mensagem de erro/validação.
 - Usuário com o id do job vai consultar a API para saber o status/andamento do job. Em algum momento o status vai ser concluído e esta resposta deve conter as informações necessárias para o usuário fazer o download dos resultados juntamente com um summary da execução do job.
-- O download dos resultados pode ser um único arquivo compactado (dependendo do tamanho) ou download individual de cada cutout. 
+- O download dos resultados pode ser um único arquivo compactado (dependendo do tamanho) ou download individual de cada cutout.
 * O resultado pode ser disponibilizado via Download ou em um diretório da estrutura do LIneA (home do usuario por exemplo para acesso pelo Jupyter Notebook ou outro diretório no caso das aplicações).
 
 
@@ -78,6 +78,6 @@ No caso do usuário querer gerar varios cutouts para uma mesma coordenada (banda
 - Preferência para Python 3.9 ou acima.
 - Framework Django preferencialmente ou Flask.
 - Enviroment em container.
-- Paralelismo 2 opções a serem testadas e avaliadas: 
+- Paralelismo 2 opções a serem testadas e avaliadas:
     - Celery + Rabbitmq: Mais amigável com aplicações web compatíveis com as outras aplicações. Pode ser compartilhado em um mesmo servidor Rabbitmq (que ainda não foi implementado mas é desejável num futuro próximo), fácil implementação, escalável e melhor performance.
     - Parsl + HTCondor Nada amigavel com aplicações web, alta dependencia do ambiente, alta complexidade, pouca estabilidade. Muita performance.
