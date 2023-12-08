@@ -239,12 +239,18 @@ DJANGO_ADMIN_FORCE_ALLAUTH = env.bool("DJANGO_ADMIN_FORCE_ALLAUTH", default=Fals
 # https://docs.djangoproject.com/en/dev/ref/settings/#logging
 # See https://docs.djangoproject.com/en/dev/topics/logging for
 # more details on how to customize your logging configuration.
+LOG_DIR = Path("/data/log")
+LOGGING_LEVEL = "INFO"
+if DEBUG:
+    LOGGING_LEVEL = "DEBUG"
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
+        "standard": {"format": "%(asctime)s [%(levelname)s] %(message)s"},
         "verbose": {
-            "format": "%(levelname)s %(asctime)s %(module)s %(process)d %(thread)d %(message)s",
+            "format": "%(levelname)s %(asctime)s %(module)s %(message)s",
         },
     },
     "handlers": {
@@ -252,9 +258,47 @@ LOGGING = {
             "level": "DEBUG",
             "class": "logging.StreamHandler",
             "formatter": "verbose",
-        }
+        },
+        "file": {
+            "level": LOGGING_LEVEL,
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": LOG_DIR.joinpath("django.log"),
+            "maxBytes": 1024 * 1024 * 5,  # 5 MB
+            "backupCount": 5,
+        },
+        "django_db": {
+            "level": LOGGING_LEVEL,
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": LOG_DIR.joinpath("django_db.log"),
+            "maxBytes": 1024 * 1024 * 5,  # 5 MB
+            "backupCount": 5,
+        },
+        "cutout": {
+            "level": LOGGING_LEVEL,
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": LOG_DIR.joinpath("cutout.log"),
+            "maxBytes": 1024 * 1024 * 5,  # 5 MB
+            "backupCount": 5,
+        },
     },
     "root": {"level": "INFO", "handlers": ["console"]},
+    "loggers": {
+        "django": {
+            "level": LOGGING_LEVEL,
+            "handlers": ["file"],
+            "propagate": False,
+        },
+        "django.db.backends": {
+            "level": LOGGING_LEVEL,
+            "handlers": ["django_db"],
+            "propagate": False,
+        },
+        "cutout": {
+            "level": LOGGING_LEVEL,
+            "handlers": ["cutout"],
+            "propagate": False,
+        },
+    },
 }
 
 # Celery
