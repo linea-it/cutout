@@ -88,7 +88,7 @@ RUN chmod +x /start-flower
 
 ENV PYTHONPATH="$APP_HOME:$PYTHONPATH"
 
-RUN mkdir -p /data /data/results \
+RUN mkdir -p /data /data/results /data/log \
   && chown -R dev-user:dev-user /data \
   && chmod -R g+w /data
 
