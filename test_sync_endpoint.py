@@ -2,15 +2,25 @@
 """Smoke test for the sync cutout endpoint using token authentication.
 
 Examples:
-  python test_sync_endpoint.py \
+    python test_sync_endpoint.py \
     --username agent_tester \
     --password secret \
-    --pos "CIRCLE 36.30911 -10.18749 2"
+        --engine astrocut \
+        --pos "CIRCLE 36.30911 -10.18749 0.01" \
+        --output /tmp/sync_astrocut_result.fits
 
   python test_sync_endpoint.py \
     --username agent_tester \
-    --password secret \
-    --pos "CIRCLE 300 80 0.01"
+        --password secret \
+        --engine legacy \
+        --pos "CIRCLE 36.30911 -10.18749 0.01" \
+        --output /tmp/sync_legacy_result.fits
+
+    python test_sync_endpoint.py \
+        --username agent_tester \
+        --password secret \
+        --id private_survey \
+        --engine astrocut
 """
 
 from __future__ import annotations
