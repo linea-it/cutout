@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from config import celery_app
 from cutout.lib.cutout import Cutout
@@ -15,7 +15,15 @@ def des_cutout_circle(**kwargs) -> str:
 
 
 @celery_app.task()
-def image_cutout(job_id: str, source_id: str, stencil: Dict[str, Any], band: str, format: str, path: str) -> str:
+def image_cutout(
+    job_id: str,
+    source_id: str,
+    stencil: Dict[str, Any],
+    band: str,
+    format: str,
+    path: str,
+    files: List[str] | None = None,
+) -> str:
     ct = Cutout(source_id, stencil, band, format)
     result = ct.create(path)
     # return str(result)

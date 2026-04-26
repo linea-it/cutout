@@ -5,12 +5,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
-from celery import chord, group
-from numpy import source
+from celery import chord
 
 from cutout.service.cutout_parameters import CutoutParameters
-from cutout.service.stencils import RangeStencil
-from cutout.service.tasks import image_cutout, job_completed, on_success
+from cutout.service.discovery import DesCsvFileLocator
+from cutout.service.tasks import image_cutout, job_completed
 from cutout.service.uws.exceptions import MultiValuedParameterError, ParameterError
 from cutout.service.uws.models import Job, JobParameter
 from cutout.service.uws.policy import UWSPolicy
@@ -45,6 +44,8 @@ class ImageCutoutPolicy(UWSPolicy):
     #     super().__init__()
     #     self._actor = actor
     #     self._logger = logger
+    def __init__(self) -> None:
+        self._file_locator = DesCsvFileLocator()
 
     def dispatch(self, job: Job):
         """Dispatch a cutout request to the backend.
@@ -74,11 +75,15 @@ class ImageCutoutPolicy(UWSPolicy):
         for t in tasks_params:
             filename = "teste.fits"
             resultfile = Path("/data/results").joinpath(filename)
+            files = self._file_locator.find_files(survey_id=t["id"], stencil=t["stencil_obj"], band=t["band"])
+            if not files:
+                raise ParameterError("No files found for the requested region")
             headers.append(
                 image_cutout.s(
                     job_id=job.job_id,
                     source_id=t["id"],
                     stencil=t["stencil"],
+                    files=[str(f.file_path) for f in files if f.file_path],
                     band=t["band"],
                     format=t["format"],
                     path=str(resultfile),
@@ -135,11 +140,6 @@ class ImageCutoutPolicy(UWSPolicy):
         if len(cutout_params.stencils) != 1:
             raise MultiValuedParameterError("Only one stencil is supported")
 
-        # For now, range stencils are not supported.
-        stencil = cutout_params.stencils[0]
-        if isinstance(stencil, RangeStencil):
-            raise ParameterError("RANGE stencils are not supported")
-
     def convert_to_list_of_task_params(self, cutouts) -> List:
         params = []
 
@@ -150,6 +150,7 @@ class ImageCutoutPolicy(UWSPolicy):
                         params.append(
                             {
                                 "id": id,
+                                "stencil_obj": stencil,
                                 "stencil": stencil.to_dict(),
                                 "band": band,
                                 "format": format,
