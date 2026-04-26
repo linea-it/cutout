@@ -5,12 +5,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
-from celery import chord
-
 from cutout.service.cutout_parameters import CutoutParameters
 from cutout.service.discovery import DesCsvFileLocator
 from cutout.service.policies import DesPublicAccessPolicy
-from cutout.service.tasks import image_cutout, job_completed
+from cutout.service.tasks import image_cutout
 from cutout.service.uws.exceptions import MultiValuedParameterError, ParameterError, PermissionDeniedError
 from cutout.service.uws.models import Job, JobParameter
 from cutout.service.uws.policy import UWSPolicy
@@ -69,10 +67,9 @@ class ImageCutoutPolicy(UWSPolicy):
         """
         cutout_params = CutoutParameters.from_job_parameters(job.parameters)
         tasks_params = self.convert_to_list_of_task_params(cutout_params)
-        print(tasks_params)
 
         # Celery tasks signature
-        headers = []
+        tasks = []
 
         for t in tasks_params:
             if not self._survey_access_policy.can_request_cutout(user_id=job.owner, survey_id=t["id"]):
@@ -83,7 +80,7 @@ class ImageCutoutPolicy(UWSPolicy):
             files = self._file_locator.find_files(survey_id=t["id"], stencil=t["stencil_obj"], band=t["band"])
             if not files:
                 raise ParameterError("No files found for the requested region")
-            headers.append(
+            tasks.append(
                 image_cutout.s(
                     job_id=job.job_id,
                     source_id=t["id"],
@@ -95,17 +92,10 @@ class ImageCutoutPolicy(UWSPolicy):
                 )
             )
 
-        callback = job_completed.s()
-        # job_group = group(headers)
-        # gresult = job_group.apply_async()
+        if len(tasks) == 1:
+            return tasks[0].apply_async()
 
-        # c = chord(group(headers), on_success.s())
-        # res = c.apply_async()
-        # print(res)
-        # job_group.link(job_completed.s(args=))
-
-        res = chord(headers[0])(callback)
-        return res
+        raise ParameterError("Only one cutout task is supported in sync mode")
 
         # return self._actor.send_with_options(
         #     args=(

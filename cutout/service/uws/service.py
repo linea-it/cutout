@@ -1,14 +1,12 @@
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
-from cutout.service.cutout_parameters import CutoutParameters
 from cutout.service.models import Job
 from cutout.service.policy import ImageCutoutPolicy
 from cutout.service.uws.exceptions import InvalidPhaseError, PermissionDeniedError
 from cutout.service.uws.models import JobParameter, _convert_job
-from cutout.service.uws.policy import UWSPolicy
 
 User = get_user_model()
 
@@ -49,6 +47,7 @@ class JobService:
 
         # TODO: Marcar o job como QUEUED
         self.mark_queued(job_id, message.id)
+        return message
 
     def mark_queued(self, job_id: int, message_id: str) -> None:
         """Mark a job as queued for processing."""
@@ -58,4 +57,22 @@ class JobService:
         if job.phase in (Job.ExecutionPhase.PENDING, Job.ExecutionPhase.HELD):
             job.phase = Job.ExecutionPhase.QUEUED
 
+        job.save()
+
+    def mark_executing(self, job_id: int) -> None:
+        job = Job.objects.get(pk=job_id)
+        job.phase = Job.ExecutionPhase.EXECUTING
+        job.start_time = timezone.now()
+        job.save()
+
+    def mark_completed(self, job_id: int) -> None:
+        job = Job.objects.get(pk=job_id)
+        job.phase = Job.ExecutionPhase.COMPLETED
+        job.end_time = timezone.now()
+        job.save()
+
+    def mark_error(self, job_id: int) -> None:
+        job = Job.objects.get(pk=job_id)
+        job.phase = Job.ExecutionPhase.ERROR
+        job.end_time = timezone.now()
         job.save()

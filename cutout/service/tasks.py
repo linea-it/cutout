@@ -7,6 +7,16 @@ from cutout.lib.des_cutout import DesCutout
 from cutout.service.uws.job import uws_job_completed
 
 
+def _validate_input_files(files: List[str] | None) -> None:
+    if not files:
+        return
+
+    missing = [f for f in files if not Path(f).exists()]
+    if missing:
+        msg = "Input file unavailable: " + ", ".join(missing)
+        raise FileNotFoundError(msg)
+
+
 @celery_app.task()
 def des_cutout_circle(**kwargs) -> str:
     dc = DesCutout()
@@ -24,10 +34,10 @@ def image_cutout(
     path: str,
     files: List[str] | None = None,
 ) -> str:
+    _validate_input_files(files)
     ct = Cutout(source_id, stencil, band, format)
     result = ct.create(path)
-    # return str(result)
-    return "Resultado do cutout 1"
+    return str(result)
 
 
 # @celery_app.task()

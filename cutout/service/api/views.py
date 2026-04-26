@@ -1,19 +1,18 @@
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
+from celery.exceptions import TimeoutError as CeleryTimeoutError
 from django.contrib.auth import get_user_model
 from django.http import FileResponse
 from django.utils.encoding import escape_uri_path
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import status
-from rest_framework.exceptions import ParseError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 
 from cutout.service.models import Job
-from cutout.service.policy import ImageCutoutPolicy
-from cutout.service.tasks import des_cutout_circle
+from cutout.service.uws.exceptions import ParameterError, ServiceUnavailableError
 from cutout.service.uws.models import JobParameter
 from cutout.service.uws.service import JobService
 
@@ -38,9 +37,6 @@ class JobRequestViewSet(ModelViewSet):
         """ """
         owner = self.request.user
         return serializer.save(owner=owner)
-
-
-from rest_framework.response import Response
 
 
 class CutoutView(APIView):
@@ -154,71 +150,45 @@ class SyncCutoutView(APIView):
     # authentication_classes = [authentication.TokenAuthentication]
     # permission_classes = [permissions.IsAdminUser]
 
+    sync_timeout_seconds = 25
+
+    def _mimetype_for_format(self, output_format: str) -> str:
+        if output_format.lower() == "png":
+            return "image/x-png"
+        return "application/fits"
+
     def sync_cutout(self, user: User, params: List[JobParameter], run_id: Optional[str]):
-        # policy = ImageCutoutPolicy()
         job_service = JobService()
         job = job_service.create(user=user, params=params, run_id=run_id)
-        job_service.start(user, job_id=job.id)
+        async_result = job_service.start(user, job_id=job.id)
 
-        # from cutout.service.cutout_parameters import CutoutParameters
-        # from cutout.service.models import Job
-        # from cutout.service.uws.models import _convert_job
+        output_format = "fits"
+        for p in params:
+            if p.parameter_id == "format":
+                output_format = p.value
+                break
 
-        # sqljob = Job.objects.get(pk=3)
+        try:
+            job_service.mark_executing(job.id)
+            result_path = async_result.get(timeout=self.sync_timeout_seconds)
+        except CeleryTimeoutError as exc:
+            job_service.mark_error(job.id)
+            raise ServiceUnavailableError("Sync cutout timed out") from exc
+        except Exception as exc:
+            job_service.mark_error(job.id)
+            raise ParameterError(str(exc)) from exc
 
-        # job = _convert_job(sqljob)
-        # print(job)
+        result_file = Path(result_path)
+        if not result_file.exists():
+            job_service.mark_error(job.id)
+            raise ServiceUnavailableError("Result file unavailable")
 
-        # cutout_params = CutoutParameters.from_job_parameters(job.parameters)
-        # print(cutout_params)
-
-        # TODO: Criar a classe ImageCutoutPolicy para ser usada no Job Service.
-        # Criar o metodo dispath
-        # https://github.com/lsst-sqre/vo-cutouts/blob/56ca1ba7a0bb3a85dfb873c0f9153c70e52adbce/src/vocutouts/policy.py#L12
-
-        #     format = params.get("format", "fits")
-
-        #     if params["id"] == "des_dr2":
-        #         pos_params = self.parse_pos_param(params["pos"])
-        #         pos_params = pos_params[0]
-
-        #         band = params.get("band", "g")
-        #         # TODO: png coloridas com banda fixa gri.
-        #         if format == "png":
-        #             band = "gri"
-        #         else:
-        #             allowed_bands = ["g", "r", "i", "z", "Y"]
-        #             if band not in allowed_bands:
-        #                 raise ParseError(f"Band parameter must be one of {', '.join(allowed_bands)}")
-
-        #         if pos_params["shape"] == "circle":
-        #             filename = "{:.5f}_{:.5f}_{}.{}".format(
-        #                 round(pos_params["ra"], 5), round(pos_params["dec"], 5), band, format
-        #             )
-        #             filepath = Path("/data/results").joinpath(filename)
-
-        #             result = des_cutout_circle.delay(
-        #                 ra=pos_params["ra"],
-        #                 dec=pos_params["dec"],
-        #                 size_arcmin=pos_params["size"],
-        #                 band=band,
-        #                 format=format,
-        #                 path=str(filepath),
-        #             )
-        #             result.wait(timeout=25)  # seconds
-        #             resultfile = Path(result.get())
-
-        #         mimetype = "application/fits"
-        #         if params["format"] == "png":
-        #             mimetype = "image/x-png"
-
-        #         fp = open(resultfile, "rb")
-        #         response = FileResponse(fp, content_type=mimetype, as_attachment=True)
-        #         response["Content-Length"] = resultfile.stat().st_size
-        #         response["Content-Disposition"] = f"attachment; filename={escape_uri_path(resultfile.name)}"
-        #         return response
-        # parameters = [p.to_dict() for p in params]
-        return Response({"success": True})
+        job_service.mark_completed(job.id)
+        fp = open(result_file, "rb")
+        response = FileResponse(fp, content_type=self._mimetype_for_format(output_format), as_attachment=True)
+        response["Content-Length"] = result_file.stat().st_size
+        response["Content-Disposition"] = f"attachment; filename={escape_uri_path(result_file.name)}"
+        return response
 
     def get(self, request, format=None):
         """

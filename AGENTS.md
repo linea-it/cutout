@@ -95,3 +95,9 @@ Para as proximas fases de codigo:
 3. Testes executados dentro do container.
 4. Lint executado dentro do container.
 5. Nenhuma dependencia foi instalada no host.
+6. Arquivo `STATUS_IMPLEMENTACAO_SYNC.md` atualizado com:
+	- resumo da fase
+	- arquivos alterados
+	- regras de negocio/decisoes
+	- validacoes executadas
+	- commit associado
