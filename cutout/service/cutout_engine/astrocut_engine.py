@@ -95,10 +95,17 @@ class AstrocutEngine(CutoutEngine):
                 )
                 temp_paths.append(Path(res))
 
-            # Read arrays
+            # Read arrays: find first HDU with data in each FITS (astrocut writes CUTOUT extension)
             for p in temp_paths:
                 with fits.open(p) as hdul:
-                    arrays.append(np.nan_to_num(hdul[0].data).astype(float))
+                    data_hdu = None
+                    for h in hdul:
+                        if getattr(h, "data", None) is not None:
+                            data_hdu = h.data
+                            break
+                    if data_hdu is None:
+                        raise ValueError(f"No data HDU found in {p}")
+                    arrays.append(np.nan_to_num(data_hdu).astype(float))
 
             # Ensure same shape by cropping to minimal shape
             min_rows = min(a.shape[0] for a in arrays)
@@ -141,7 +148,14 @@ class AstrocutEngine(CutoutEngine):
         result_path = Path(result)
 
         with fits.open(result_path) as hdul:
-            data = hdul[0].data
+            data_hdu = None
+            for h in hdul:
+                if getattr(h, "data", None) is not None:
+                    data_hdu = h.data
+                    break
+            if data_hdu is None:
+                raise ValueError(f"No data HDU found in {result_path}")
+            data = data_hdu
 
         arr = np.nan_to_num(data).astype(float)
         arr -= arr.min()
