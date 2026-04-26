@@ -34,11 +34,21 @@ def inspect_fits(path: Path):
     print(f"  size_bytes: {path.stat().st_size}")
     try:
         with fits.open(path) as hdul:
-            data = hdul[0].data
-            print(f"  dtype: {data.dtype}, shape: {data.shape}")
-            arr = np.array(data)
-            print(f"  min: {np.nanmin(arr)}, max: {np.nanmax(arr)}, mean: {np.nanmean(arr)}")
-            print(f"  nans: {np.isnan(arr).sum()} / {arr.size}")
+            print("  HDU list:")
+            hdul.info(output=sys.stdout)
+            # try to find first HDU with data
+            found = False
+            for i, h in enumerate(hdul):
+                if getattr(h, 'data', None) is not None:
+                    data = h.data
+                    print(f"  found data in HDU {i}: dtype={data.dtype}, shape={data.shape}")
+                    arr = np.array(data)
+                    print(f"  min: {np.nanmin(arr)}, max: {np.nanmax(arr)}, mean: {np.nanmean(arr)}")
+                    print(f"  nans: {np.isnan(arr).sum()} / {arr.size}")
+                    found = True
+                    break
+            if not found:
+                print("  No data array found in any HDU")
     except Exception as e:
         print("  ERROR reading FITS:", e)
         traceback.print_exc()
@@ -99,19 +109,49 @@ def run_engine(engine_name, stencil, band, fmt, files=None):
             try:
                 dc = DesCutout()
                 verts = dc.get_cutout_verts(stencil["center"]["ra"], stencil["center"]["dec"], stencil["radius"])  # type: ignore
-                comp_files = dc.get_fits_files(verts, band if len(band) == 1 else band[0])
-                files = []
-                for comp in comp_files:
-                    fits_filename = comp.name.split(".fz")[0]
-                    uncompressed = dc.tmp_path.joinpath(fits_filename)
-                    if not uncompressed.exists():
-                        print(f"  uncompressing {comp} -> {uncompressed}")
-                        try:
-                            dc.funpack(comp, uncompressed)
-                        except Exception as e:
-                            print("  funpack failed:", e)
-                    if uncompressed.exists():
-                        files.append(str(uncompressed))
+                # If band is multiple letters (e.g. 'gri'), build mapping per band
+                if isinstance(band, str) and len(band) > 1 and "," not in band and " " not in band:
+                    bands = list(band)
+                else:
+                    # split by comma or space if present
+                    if isinstance(band, str) and "," in band:
+                        bands = [b.strip() for b in band.split(",") if b.strip()]
+                    elif isinstance(band, str) and " " in band:
+                        bands = [b.strip() for b in band.split() if b.strip()]
+                    else:
+                        bands = [band]
+
+                if len(bands) == 1:
+                    comp_files = dc.get_fits_files(verts, bands[0])
+                    files = []
+                    for comp in comp_files:
+                        fits_filename = comp.name.split(".fz")[0]
+                        uncompressed = dc.tmp_path.joinpath(fits_filename)
+                        if not uncompressed.exists():
+                            print(f"  uncompressing {comp} -> {uncompressed}")
+                            try:
+                                dc.funpack(comp, uncompressed)
+                            except Exception as e:
+                                print("  funpack failed:", e)
+                        if uncompressed.exists():
+                            files.append(str(uncompressed))
+                else:
+                    files_map = {}
+                    for b in bands:
+                        comp_files = dc.get_fits_files(verts, b)
+                        files_map[b] = []
+                        for comp in comp_files:
+                            fits_filename = comp.name.split(".fz")[0]
+                            uncompressed = dc.tmp_path.joinpath(fits_filename)
+                            if not uncompressed.exists():
+                                print(f"  uncompressing {comp} -> {uncompressed}")
+                                try:
+                                    dc.funpack(comp, uncompressed)
+                                except Exception as e:
+                                    print("  funpack failed:", e)
+                            if uncompressed.exists():
+                                files_map[b].append(str(uncompressed))
+                    files = files_map
             except Exception:
                 files = files or []
 
