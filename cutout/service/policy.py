@@ -9,8 +9,9 @@ from celery import chord
 
 from cutout.service.cutout_parameters import CutoutParameters
 from cutout.service.discovery import DesCsvFileLocator
+from cutout.service.policies import DesPublicAccessPolicy
 from cutout.service.tasks import image_cutout, job_completed
-from cutout.service.uws.exceptions import MultiValuedParameterError, ParameterError
+from cutout.service.uws.exceptions import MultiValuedParameterError, ParameterError, PermissionDeniedError
 from cutout.service.uws.models import Job, JobParameter
 from cutout.service.uws.policy import UWSPolicy
 
@@ -45,6 +46,7 @@ class ImageCutoutPolicy(UWSPolicy):
     #     self._actor = actor
     #     self._logger = logger
     def __init__(self) -> None:
+        self._survey_access_policy = DesPublicAccessPolicy()
         self._file_locator = DesCsvFileLocator()
 
     def dispatch(self, job: Job):
@@ -73,6 +75,9 @@ class ImageCutoutPolicy(UWSPolicy):
         headers = []
 
         for t in tasks_params:
+            if not self._survey_access_policy.can_request_cutout(user_id=job.owner, survey_id=t["id"]):
+                raise PermissionDeniedError(f"User has no access to survey {t['id']}")
+
             filename = "teste.fits"
             resultfile = Path("/data/results").joinpath(filename)
             files = self._file_locator.find_files(survey_id=t["id"], stencil=t["stencil_obj"], band=t["band"])
