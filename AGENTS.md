@@ -9,8 +9,8 @@ Estas regras valem para todos os agentes (Codex, Claude e similares) durante ana
 ## Regra principal: tudo em container
 
 - Execute comandos de aplicacao somente dentro de containers Docker.
-- Use `docker compose -f local.yml exec` para comandos em servicos ja em execucao.
-- Use `docker compose -f local.yml run --rm` para comandos one-shot quando o servico nao precisa ficar ativo.
+- Use `docker compose exec` para comandos em servicos ja em execucao.
+- Use `docker compose run --rm` para comandos one-shot quando o servico nao precisa ficar ativo.
 - Nao execute `python`, `pip`, `pytest`, `mypy`, `flake8`, `black`, `isort`, `pre-commit`, `celery` diretamente no host.
 
 ## Proibicao de dependencias no host
@@ -34,37 +34,37 @@ No host, apenas comandos de orquestracao e apoio:
 
 ## Padrao de execucao
 
-Assuma `local.yml` como compose padrao de desenvolvimento.
+Assuma `docker-compose.yml` como compose padrao de desenvolvimento.
 
 Exemplos:
 
 Subir ambiente:
-- `docker compose -f local.yml up -d --build`
+- `docker compose up -d --build`
 
 Parar ambiente:
-- `docker compose -f local.yml down --remove-orphans`
+- `docker compose down --remove-orphans`
 
 Entrar no app:
-- `docker compose -f local.yml exec django bash`
+- `docker compose exec django bash`
 
 Comando Django:
-- `docker compose -f local.yml exec django python manage.py migrate`
+- `docker compose exec django python manage.py migrate`
 
 Rodar testes:
-- `docker compose -f local.yml exec django pytest`
+- `docker compose exec django pytest`
 
 Rodar lint:
-- `docker compose -f local.yml exec django black --check .`
-- `docker compose -f local.yml exec django isort --check-only .`
-- `docker compose -f local.yml exec django flake8`
-- `docker compose -f local.yml exec django mypy cutout`
+- `docker compose exec django black --check .`
+- `docker compose exec django isort --check-only .`
+- `docker compose exec django flake8`
+- `docker compose exec django mypy cutout`
 
 Executar comando one-shot:
-- `docker compose -f local.yml run --rm django python manage.py shell`
+- `docker compose run --rm django python manage.py shell`
 
 Logs:
-- `docker compose -f local.yml logs -f --tail=200 django`
-- `docker compose -f local.yml logs -f --tail=200 celeryworker`
+- `docker compose logs -f --tail=200 django`
+- `docker compose logs -f --tail=200 celeryworker`
 
 ## Uso de justfile
 

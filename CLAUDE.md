@@ -10,7 +10,7 @@ This document is for coding agents (Codex, Claude, and similar) working in this 
 - Scientific domain: FITS cutout processing with Astropy.
 
 Main local orchestration file:
-- local.yml
+- docker-compose.yml
 
 Main app entrypoint in local environment:
 - compose/local/django/start
@@ -47,8 +47,8 @@ Preferred workflow uses just recipes from justfile.
 Mandatory execution rule:
 
 - Run application commands only inside containers.
-- Use `docker compose -f local.yml exec` for running services.
-- Use `docker compose -f local.yml run --rm` for one-shot commands.
+- Use `docker compose exec` for running services.
+- Use `docker compose run --rm` for one-shot commands.
 - Do not run `python`, `pip`, `pytest`, `mypy`, `flake8`, `black`, `isort`, `pre-commit`, or `celery` on the host.
 - Never install dependencies on the host.
 
@@ -62,11 +62,11 @@ Examples:
 - just down
 
 Raw docker compose equivalent:
-- docker compose -f local.yml up -d --build
-- docker compose -f local.yml down --remove-orphans
-- docker compose -f local.yml logs -f --tail=200
-- docker compose -f local.yml exec django python manage.py migrate
-- docker compose -f local.yml run --rm django python manage.py shell
+- docker compose up -d --build
+- docker compose down --remove-orphans
+- docker compose logs -f --tail=200
+- docker compose exec django python manage.py migrate
+- docker compose run --rm django python manage.py shell
 
 ## 4. How to Run the Application
 
@@ -108,8 +108,8 @@ Commands:
 - just test-cov
 
 If needed directly in container:
-- docker compose -f local.yml exec django pytest
-- docker compose -f local.yml exec django coverage run -m pytest
+- docker compose exec django pytest
+- docker compose exec django coverage run -m pytest
 
 ## 7. Installing or Updating Python Packages
 

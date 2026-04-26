@@ -65,9 +65,9 @@ Arquivos alterados:
 - cutout/service/tasks.py
 
 Validacao executada:
-- docker compose -f local.yml exec django black --check cutout/service/discovery cutout/service/policy.py cutout/service/tasks.py
-- docker compose -f local.yml exec django isort --check-only cutout/service/discovery cutout/service/policy.py cutout/service/tasks.py
-- docker compose -f local.yml exec django pytest cutout/service/discovery/tests/test_des_csv_locator.py -q
+- docker compose exec django black --check cutout/service/discovery cutout/service/policy.py cutout/service/tasks.py
+- docker compose exec django isort --check-only cutout/service/discovery cutout/service/policy.py cutout/service/tasks.py
+- docker compose exec django pytest cutout/service/discovery/tests/test_des_csv_locator.py -q
 - Resultado: 5 passed
 
 Commit:
@@ -91,9 +91,9 @@ Arquivos alterados:
 - cutout/service/policy.py
 
 Validacao executada:
-- docker compose -f local.yml exec django black --check cutout/service/policies cutout/service/policy.py
-- docker compose -f local.yml exec django isort --check-only cutout/service/policies cutout/service/policy.py
-- docker compose -f local.yml exec django pytest cutout/service/policies/tests/test_des_public_policy.py cutout/service/discovery/tests/test_des_csv_locator.py -q
+- docker compose exec django black --check cutout/service/policies cutout/service/policy.py
+- docker compose exec django isort --check-only cutout/service/policies cutout/service/policy.py
+- docker compose exec django pytest cutout/service/policies/tests/test_des_public_policy.py cutout/service/discovery/tests/test_des_csv_locator.py -q
 - Resultado: 7 passed
 
 Smoke test de autorizacao:
@@ -134,9 +134,9 @@ Arquivos alterados:
 - .gitignore
 
 Validacao executada:
-- docker compose -f local.yml exec django black --check cutout/service/api/views.py cutout/service/policy.py cutout/service/tasks.py cutout/service/uws/service.py cutout/service/uws/exceptions.py cutout/lib/cutout.py cutout/service/tests/test_tasks.py
-- docker compose -f local.yml exec django isort --check-only cutout/service/api/views.py cutout/service/policy.py cutout/service/tasks.py cutout/service/uws/service.py cutout/service/uws/exceptions.py cutout/lib/cutout.py cutout/service/tests/test_tasks.py
-- docker compose -f local.yml exec django pytest cutout/service/tests/test_tasks.py cutout/service/policies/tests/test_des_public_policy.py cutout/service/discovery/tests/test_des_csv_locator.py -q
+- docker compose exec django black --check cutout/service/api/views.py cutout/service/policy.py cutout/service/tasks.py cutout/service/uws/service.py cutout/service/uws/exceptions.py cutout/lib/cutout.py cutout/service/tests/test_tasks.py
+- docker compose exec django isort --check-only cutout/service/api/views.py cutout/service/policy.py cutout/service/tasks.py cutout/service/uws/service.py cutout/service/uws/exceptions.py cutout/lib/cutout.py cutout/service/tests/test_tasks.py
+- docker compose exec django pytest cutout/service/tests/test_tasks.py cutout/service/policies/tests/test_des_public_policy.py cutout/service/discovery/tests/test_des_csv_locator.py -q
 - Resultado: 10 passed
 
 Smoke test relevante:

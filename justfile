@@ -1,6 +1,6 @@
 set shell := ["bash", "-cu"]
 
-compose := "docker compose -f local.yml"
+compose := "docker compose"
 
 # List available recipes
 @default:

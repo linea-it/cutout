@@ -91,7 +91,7 @@ Lacunas importantes:
 Arquivos:
 - config/celery_app.py
 - config/settings/base.py
-- local.yml
+- docker-compose.yml
 - production.yml
 - cutout/service/tasks.py
 - cutout/service/policy.py
