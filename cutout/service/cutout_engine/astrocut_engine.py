@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from astrocut import fits_cut
 from astropy import units as u
@@ -37,6 +38,7 @@ class AstrocutEngine(CutoutEngine):
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_tag = uuid4().hex[:8]
 
         center = stencil["center"]
         radius_arcmin = stencil["radius"]
@@ -91,7 +93,7 @@ class AstrocutEngine(CutoutEngine):
                 if not files_b:
                     raise ValueError(f"No input files provided for band {b}")
 
-                temp_fits = output_path.with_name(f"{output_path.stem}_{b}.fits")
+                temp_fits = output_path.with_name(f"{output_path.stem}_{temp_tag}_{b}.fits")
                 print(f"[astrocut] creating temp fits for band {b} at {temp_fits} using files {files_b}")
                 res = fits_cut(
                     input_files=files_b,
@@ -148,7 +150,7 @@ class AstrocutEngine(CutoutEngine):
             return output_path
 
         # Fallback: single-band mono PNG conversion
-        temp_fits = output_path.with_suffix(".fits")
+        temp_fits = output_path.with_name(f"{output_path.stem}_{temp_tag}_mono.fits")
         result = fits_cut(
             input_files=input_files if isinstance(input_files, list) else ([] if input_files is None else []),
             coordinates=coordinate,

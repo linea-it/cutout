@@ -10,7 +10,7 @@
 - [] SODA parametro band está em numerico, usamos letras e isso é importante no caso do des por causa dos arquivos. procurar um parametro alternativo para representar as bandas com letras.
 
 
-- [] Filenames Unicos para os resultados ???
+- [x] Filenames unicos para os resultados no sync (`/data/results`) com extensao por formato.
 - [] Quanto tempo os arquivos gerados por um job ficam disponiveis para download, antes do garbage collector remover.
 - [] CONFIRMAR se no metodo lupton sempre vai ser usado como gri, a ordem é fixa? como fica para outros surveys.
 - [] Quanto tempo os arquivos fits extraidos ficam disponiveis.
@@ -34,12 +34,13 @@
 - [x] Descompactar os Fits.fz em tempo de execução.
 - [X] Endpoint Sync para cutouts DES POS Circle Fits.
 - [X] Cutout Sync em background com Celery.
-- [] Endpoint Sync para cutouts DES POS Circle Png.
+- [x] Endpoint Sync para cutouts DES POS Circle Png com `engine=astrocut` (corrigido naming de saida).
 - [] Endpoint Sync para cutouts DES POS Polygon Jpg.
 - [] função para Cutout DES usando Range de posições.
 - [] função para Cutout DES usando Poligono.
 - [] Registrar a criação do cutout sync na listas de job do usuario???
 - [] PNGs só tem opção de gerar imagens coloridas, usando gri. (Acredito que de para ter mais opções, png para uma banda só ou outras combinações.)
+- [] Fluxo sync `engine=legacy` + `format=png` ainda com falha (investigar stack completa e cobrir com teste de regressao).
 - [] Criar exemplos de uso da api no Jupyter Notebook.
 
 ## Cutout Sync LSST

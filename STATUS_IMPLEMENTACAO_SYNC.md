@@ -319,3 +319,37 @@ Responsavel: equipe de desenvolvimento (agent).
 
 Proximo passo:
 - executar o script dentro do container, analisar saídas e corrigir a função que estiver produzindo artefatos inválidos.
+
+### Entrada 2026-04-26 - Correcao de nome de saida no sync PNG (astrocut)
+
+Resumo:
+- Corrigido o nome de arquivo de saida no dispatch do policy, removendo hardcode `teste.fits`.
+- Fluxo sync agora gera path dinamico em `/data/results` com extensao aderente ao parametro `format` (`.png` ou `.fits`).
+- Arquivos intermediarios do Astrocut passaram a usar nomes unicos por execucao para evitar colisao em concorrencia.
+- Resultado observado em teste manual: fluxo sync com `engine=astrocut` e `format=png` voltou a gerar artefato no formato esperado.
+
+Arquivos alterados:
+- cutout/service/policy.py
+- cutout/service/cutout_engine/astrocut_engine.py
+
+Regras/decisoes desta entrada:
+1. Diretorio de saida oficial permanece `/data/results`.
+2. Nome final do resultado deve ser deterministico por job e seguro para filesystem.
+3. Arquivos temporarios do pipeline PNG devem ser unicos por execucao (evitar overwrite entre jobs).
+
+Validacao executada:
+- docker compose exec django pytest cutout/service/cutout_engine/tests/test_factory.py -q
+- docker compose exec django pytest cutout/service/policies/tests/test_des_public_policy.py -q
+- docker compose exec django python -m py_compile cutout/service/policy.py cutout/service/cutout_engine/astrocut_engine.py
+- Resultado: 5 passed; compilacao sem erros.
+
+Pendencia conhecida:
+- Fluxo sync `engine=legacy` com `format=png` continua com problema e requer depuracao dedicada no motor legado.
+
+Proximos passos planejados:
+1. Reproduzir `legacy+png` com caso minimo (CIRCLE pequeno) e capturar traceback completo em worker + django.
+2. Revisar caminho de conversao/serializacao PNG no engine legado e validar extensao/mimetype de saida.
+3. Adicionar teste automatizado de regressao para sync `legacy+png` (esperado 200 + arquivo PNG valido).
+
+Commit associado:
+- Este commit (correcao do naming dinamico no sync e plano para pendencia legacy PNG).

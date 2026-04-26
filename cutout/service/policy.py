@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import re
 from typing import List
 
 from cutout.service.cutout_parameters import CutoutParameters
@@ -47,6 +48,22 @@ class ImageCutoutPolicy(UWSPolicy):
         self._survey_access_policy = DesPublicAccessPolicy()
         self._file_locator = DesCsvFileLocator()
 
+    def _safe_token(self, value: str) -> str:
+        """Normalize token for filesystem-safe filenames."""
+        return re.sub(r"[^a-zA-Z0-9_.-]", "_", value)
+
+    def _build_result_path(self, job: Job, task_params: dict) -> Path:
+        output_format = str(task_params.get("format", "fits")).lower()
+        extension = "png" if output_format == "png" else "fits"
+        mode = "rgb" if task_params.get("color", False) else str(task_params.get("band", "mono"))
+
+        survey_id = self._safe_token(str(task_params.get("id", "unknown")))
+        engine = self._safe_token(str(task_params.get("engine", "engine")))
+        mode_token = self._safe_token(mode)
+        filename = f"job_{job.job_id}_{survey_id}_{engine}_{mode_token}.{extension}"
+
+        return Path("/data/results").joinpath(filename)
+
     def dispatch(self, job: Job):
         """Dispatch a cutout request to the backend.
 
@@ -75,8 +92,7 @@ class ImageCutoutPolicy(UWSPolicy):
             if not self._survey_access_policy.can_request_cutout(user_id=job.owner, survey_id=t["id"]):
                 raise PermissionDeniedError(f"User has no access to survey {t['id']}")
 
-            filename = "teste.fits"
-            resultfile = Path("/data/results").joinpath(filename)
+            resultfile = self._build_result_path(job, t)
             # If color composition requested, collect files per RGB band
             if t.get("color"):
                 # parse rgb_bands: accept 'gri', 'g,r,i' or 'g r i'
