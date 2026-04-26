@@ -77,21 +77,58 @@ class ImageCutoutPolicy(UWSPolicy):
 
             filename = "teste.fits"
             resultfile = Path("/data/results").joinpath(filename)
-            files = self._file_locator.find_files(survey_id=t["id"], stencil=t["stencil_obj"], band=t["band"])
-            if not files:
-                raise ParameterError("No files found for the requested region")
-            tasks.append(
-                image_cutout.s(
-                    job_id=job.job_id,
-                    source_id=t["id"],
-                    stencil=t["stencil"],
-                    files=[str(f.file_path) for f in files if f.file_path],
-                    engine=t["engine"],
-                    band=t["band"],
-                    format=t["format"],
-                    path=str(resultfile),
+            # If color composition requested, collect files per RGB band
+            if t.get("color"):
+                # parse rgb_bands: accept 'gri', 'g,r,i' or 'g r i'
+                raw = t.get("rgb_bands", "gri")
+                if "," in raw:
+                    bands = [b.strip() for b in raw.split(",") if b.strip()]
+                elif " " in raw:
+                    bands = [b.strip() for b in raw.split() if b.strip()]
+                else:
+                    bands = list(raw)
+
+                files_map = {}
+                for b in bands:
+                    files_b = self._file_locator.find_files(survey_id=t["id"], stencil=t["stencil_obj"], band=b)
+                    if not files_b:
+                        raise ParameterError(f"No files found for band {b} in the requested region")
+                    files_map[b] = [str(f.file_path) for f in files_b if f.file_path]
+
+                tasks.append(
+                    image_cutout.s(
+                        job_id=job.job_id,
+                        source_id=t["id"],
+                        stencil=t["stencil"],
+                        files=files_map,
+                        engine=t["engine"],
+                        band=t["band"],
+                        format=t["format"],
+                        path=str(resultfile),
+                        color=t.get("color", False),
+                        rgb_bands=t.get("rgb_bands"),
+                        persist=t.get("persist", False),
+                    )
                 )
-            )
+            else:
+                files = self._file_locator.find_files(survey_id=t["id"], stencil=t["stencil_obj"], band=t["band"])
+                if not files:
+                    raise ParameterError("No files found for the requested region")
+                tasks.append(
+                    image_cutout.s(
+                        job_id=job.job_id,
+                        source_id=t["id"],
+                        stencil=t["stencil"],
+                        files=[str(f.file_path) for f in files if f.file_path],
+                        engine=t["engine"],
+                        band=t["band"],
+                        format=t["format"],
+                        path=str(resultfile),
+                        color=False,
+                        rgb_bands=t.get("rgb_bands"),
+                        persist=t.get("persist", False),
+                    )
+                )
 
         if len(tasks) == 1:
             return tasks[0].apply_async()

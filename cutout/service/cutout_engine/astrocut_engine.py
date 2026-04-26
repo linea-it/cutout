@@ -17,10 +17,13 @@ class AstrocutEngine(CutoutEngine):
         *,
         source_id: str,
         stencil: dict[str, Any],
-        input_files: list[str] | None,
+        input_files: list[str] | dict[str, list[str]] | None,
         band: str,
         output_format: str,
         output_path: str | Path,
+        color: bool = False,
+        rgb_bands: str | None = None,
+        persist: bool = False,
     ) -> Path:
         # Accept png output (mono and rgb) in addition to fits.
         if output_format not in ("fits", "png"):
@@ -56,13 +59,78 @@ class AstrocutEngine(CutoutEngine):
 
             return output_path
 
-        # For PNG, perform a simple single-band conversion using astrocut.fits_cut
-        # by requesting a single FITS outfile then converting to PNG.
-        # This is a minimal implementation for mono PNG; RGB composition
-        # will be implemented in subsequent iterations.
+        # For PNG, support mono and RGB composition
+        from astropy.io import fits
+        import numpy as np
+        from PIL import Image
+
+        if output_format == "png" and color:
+            # Expect input_files as a dict: band -> list[str]
+            if not isinstance(input_files, dict):
+                raise ValueError("Color PNG requires input_files as a mapping band->files")
+
+            raw = rgb_bands or "gri"
+            if "," in raw:
+                bands = [b.strip() for b in raw.split(",") if b.strip()]
+            elif " " in raw:
+                bands = [b.strip() for b in raw.split() if b.strip()]
+            else:
+                bands = list(raw)
+
+            temp_paths = []
+            arrays = []
+            for b in bands:
+                files_b = input_files.get(b)
+                if not files_b:
+                    raise ValueError(f"No input files provided for band {b}")
+
+                temp_fits = output_path.with_name(f"{output_path.stem}_{b}.fits")
+                res = fits_cut(
+                    input_files=files_b,
+                    coordinates=coordinate,
+                    cutout_size=radius_arcmin * u.arcmin,
+                    single_outfile=True,
+                    cutout_prefix=temp_fits.stem,
+                    output_dir=temp_fits.parent,
+                )
+                temp_paths.append(Path(res))
+
+            # Read arrays
+            for p in temp_paths:
+                with fits.open(p) as hdul:
+                    arrays.append(np.nan_to_num(hdul[0].data).astype(float))
+
+            # Ensure same shape by cropping to minimal shape
+            min_rows = min(a.shape[0] for a in arrays)
+            min_cols = min(a.shape[1] for a in arrays)
+            chans = []
+            for a in arrays:
+                a_crop = a[:min_rows, :min_cols]
+                a_crop -= a_crop.min()
+                if a_crop.max() > 0:
+                    a_crop = (a_crop / a_crop.max() * 255.0).astype('uint8')
+                else:
+                    a_crop = a_crop.astype('uint8')
+                chans.append(a_crop)
+
+            # Stack channels into RGB (order: channels[0]->R, [1]->G, [2]->B)
+            rgb = np.dstack(chans[:3]) if len(chans) >= 3 else np.dstack([chans[0]] * 3)
+            img = Image.fromarray(rgb, mode="RGB")
+            img.save(output_path)
+
+            # Cleanup temps
+            for p in temp_paths:
+                try:
+                    p.unlink()
+                except Exception:
+                    pass
+
+            return output_path
+
+        # Fallback: single-band mono PNG conversion
         temp_fits = output_path.with_suffix(".fits")
         result = fits_cut(
-            input_files=input_files,
+            input_files=input_files if isinstance(input_files, list) else ([] if input_files is None else []),
             coordinates=coordinate,
             cutout_size=radius_arcmin * u.arcmin,
             single_outfile=True,
@@ -71,15 +139,10 @@ class AstrocutEngine(CutoutEngine):
         )
 
         result_path = Path(result)
-        # Convert FITS to PNG (simple stretch using astropy.io)
-        from astropy.io import fits
-        import numpy as np
-        from PIL import Image
 
         with fits.open(result_path) as hdul:
             data = hdul[0].data
 
-        # Normalize to 0-255
         arr = np.nan_to_num(data).astype(float)
         arr -= arr.min()
         if arr.max() > 0:
@@ -90,7 +153,6 @@ class AstrocutEngine(CutoutEngine):
         img = Image.fromarray(arr)
         img.save(output_path)
 
-        # Clean up temporary FITS
         try:
             result_path.unlink()
         except Exception:
