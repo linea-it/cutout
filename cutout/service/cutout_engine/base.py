@@ -16,5 +16,8 @@ class CutoutEngine(ABC):
         band: str,
         output_format: str,
         output_path: str | Path,
+        color: bool = False,
+        rgb_bands: str | None = None,
+        persist: bool = False,
     ) -> Path:
         """Run a cutout request and return the generated file path."""

@@ -33,6 +33,9 @@ def image_cutout(
     format: str,
     path: str,
     files: List[str] | None = None,
+    color: bool = False,
+    rgb_bands: str | None = None,
+    persist: bool = False,
 ) -> str:
     _validate_input_files(files)
     cutout_engine = create_cutout_engine(engine)
@@ -43,6 +46,9 @@ def image_cutout(
         band=band,
         output_format=format,
         output_path=path,
+        color=color,
+        rgb_bands=rgb_bands,
+        persist=persist,
     )
     return str(result)
 

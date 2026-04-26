@@ -155,6 +155,9 @@ class ImageCutoutPolicy(UWSPolicy):
                                     "band": band,
                                     "format": format,
                                     "engine": engine,
+                                    "color": (cutouts.colors[0].lower() == "true") if getattr(cutouts, 'colors', None) else False,
+                                    "rgb_bands": cutouts.rgb_bands[0] if getattr(cutouts, 'rgb_bands', None) else "gri",
+                                    "persist": (cutouts.persists[0].lower() == "true") if getattr(cutouts, 'persists', None) else False,
                                 }
                             )
         return params
