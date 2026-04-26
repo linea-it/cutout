@@ -19,6 +19,7 @@ from astropy.io import fits
 
 from cutout.lib.des_cutout import DesCutout
 from cutout.lib.cutout import Cutout
+from cutout.service.discovery.des_csv_locator import DesCsvFileLocator
 
 
 OUT_DIR = Path("/data/results/debug")
@@ -93,6 +94,27 @@ def run_engine(engine_name, stencil, band, fmt, files=None):
     filename = f"engine_{engine_name}_{stencil['center']['ra']:.5f}_{stencil['center']['dec']:.5f}.{fmt}"
     out = OUT_DIR.joinpath(filename)
     try:
+        # If no files provided, try to discover and uncompress via DesCutout
+        if not files:
+            try:
+                dc = DesCutout()
+                verts = dc.get_cutout_verts(stencil["center"]["ra"], stencil["center"]["dec"], stencil["radius"])  # type: ignore
+                comp_files = dc.get_fits_files(verts, band if len(band) == 1 else band[0])
+                files = []
+                for comp in comp_files:
+                    fits_filename = comp.name.split(".fz")[0]
+                    uncompressed = dc.tmp_path.joinpath(fits_filename)
+                    if not uncompressed.exists():
+                        print(f"  uncompressing {comp} -> {uncompressed}")
+                        try:
+                            dc.funpack(comp, uncompressed)
+                        except Exception as e:
+                            print("  funpack failed:", e)
+                    if uncompressed.exists():
+                        files.append(str(uncompressed))
+            except Exception:
+                files = files or []
+
         res = engine.run_cutout(
             source_id="des_dr2",
             stencil=stencil,
