@@ -22,8 +22,9 @@ class AstrocutEngine(CutoutEngine):
         output_format: str,
         output_path: str | Path,
     ) -> Path:
-        if output_format != "fits":
-            raise ValueError("Astrocut engine currently supports only fits output")
+        # Accept png output (mono and rgb) in addition to fits.
+        if output_format not in ("fits", "png"):
+            raise ValueError("Astrocut engine currently supports only fits and png output")
 
         if not input_files:
             raise ValueError("Astrocut engine requires at least one input file")
@@ -38,17 +39,61 @@ class AstrocutEngine(CutoutEngine):
         radius_arcmin = stencil["radius"]
         coordinate = SkyCoord(ra=center["ra"] * u.deg, dec=center["dec"] * u.deg, frame="icrs")
 
+        # For FITS, reuse fits_cut
+        if output_format == "fits":
+            result = fits_cut(
+                input_files=input_files,
+                coordinates=coordinate,
+                cutout_size=radius_arcmin * u.arcmin,
+                single_outfile=True,
+                cutout_prefix=output_path.stem,
+                output_dir=output_path.parent,
+            )
+
+            result_path = Path(result)
+            if result_path != output_path:
+                shutil.move(str(result_path), str(output_path))
+
+            return output_path
+
+        # For PNG, perform a simple single-band conversion using astrocut.fits_cut
+        # by requesting a single FITS outfile then converting to PNG.
+        # This is a minimal implementation for mono PNG; RGB composition
+        # will be implemented in subsequent iterations.
+        temp_fits = output_path.with_suffix(".fits")
         result = fits_cut(
             input_files=input_files,
             coordinates=coordinate,
             cutout_size=radius_arcmin * u.arcmin,
             single_outfile=True,
-            cutout_prefix=output_path.stem,
-            output_dir=output_path.parent,
+            cutout_prefix=temp_fits.stem,
+            output_dir=temp_fits.parent,
         )
 
         result_path = Path(result)
-        if result_path != output_path:
-            shutil.move(str(result_path), str(output_path))
+        # Convert FITS to PNG (simple stretch using astropy.io)
+        from astropy.io import fits
+        import numpy as np
+        from PIL import Image
+
+        with fits.open(result_path) as hdul:
+            data = hdul[0].data
+
+        # Normalize to 0-255
+        arr = np.nan_to_num(data).astype(float)
+        arr -= arr.min()
+        if arr.max() > 0:
+            arr = (arr / arr.max() * 255.0).astype('uint8')
+        else:
+            arr = arr.astype('uint8')
+
+        img = Image.fromarray(arr)
+        img.save(output_path)
+
+        # Clean up temporary FITS
+        try:
+            result_path.unlink()
+        except Exception:
+            pass
 
         return output_path
