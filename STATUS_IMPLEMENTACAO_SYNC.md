@@ -112,6 +112,24 @@ Objetivos imediatos:
 2. Adaptar implementacao atual (DES) para o contrato novo sem quebrar endpoint sync.
 3. Preparar ponto de troca para Astrocut em configuracao futura.
 
+### Entrada 2026-04-26 - Preparacao da Fase 3
+
+Resumo:
+- Criado esqueleto do modulo `cutout_engine` para iniciar a separacao entre orquestracao e motor de recorte.
+- Adicionada interface `CutoutEngine` e implementacoes iniciais para DES e Astrocut (stub).
+- Incluido teste unitario basico para validar delegacao do adapter DES para a classe de cutout existente.
+
+Arquivos criados:
+- cutout/service/cutout_engine/__init__.py
+- cutout/service/cutout_engine/base.py
+- cutout/service/cutout_engine/des_engine.py
+- cutout/service/cutout_engine/astrocut_engine.py
+- cutout/service/cutout_engine/tests/test_des_engine.py
+
+Status:
+- Preparacao inicial concluida.
+- Integracao do adapter no fluxo principal sera feita na execucao completa da Fase 3.
+
 ### Entrada 2026-04-26 - Fase 2
 
 Resumo:
