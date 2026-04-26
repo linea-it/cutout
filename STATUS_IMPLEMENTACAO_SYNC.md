@@ -298,3 +298,24 @@ Arquivos alterados nesta entrada:
 
 Status:
 - Replanejamento aplicado e pronto para execucao incremental.
+
+### Entrada 2026-04-26 - Bug report e plano de depuracao
+
+Resumo:
+- Foram detectados artefatos gerados incorretos: FITS que nao abre e PNG aparentemente vazio. Também foi observado que o caminho legado (`legacy`) nao gerou arquivos como antes.
+
+Acao imediata:
+1. Criar script de depuracao `scripts/debug_cutout.py` que reproduz as chamadas existentes em `des_cutout.py` e grava artefatos em `/data/results/debug/`.
+2. Executar steps ordenados: FITS mono (legacy), FITS mono (engine astrocut), PNG mono, PNG RGB.
+3. Coletar logs e propriedades de cada arquivo (tamanho, shape, min/max, nan count) e anexar ao ticket/issue.
+
+Arquivos criados/alterados:
+- scripts/debug_cutout.py (novo)
+
+Validacao executada:
+- executar `docker compose exec django python scripts/debug_cutout.py` dentro do container e inspecionar `/data/results/debug/`.
+
+Responsavel: equipe de desenvolvimento (agent).
+
+Proximo passo:
+- executar o script dentro do container, analisar saídas e corrigir a função que estiver produzindo artefatos inválidos.

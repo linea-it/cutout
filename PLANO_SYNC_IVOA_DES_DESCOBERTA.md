@@ -398,6 +398,37 @@ Contrato proposto:
   - Se `color=true` e `band` vier com banda unica, `rgb_bands` prevalece para composicao.
   - Se `color=false`, usa apenas `band`.
 
+## 12.3 Depuração: plano de ação passo-a-passo (2026-04-26)
+
+Contexto:
+- Foram observados arquivos gerados incorretos: FITS que nao abre e PNG aparentemente vazio. A implementação legacy tambem nao gerou arquivos.
+
+Objetivo:
+- Fazer debug sistematico na cadeia de criação de cutouts, do mais simples ao composto, garantindo que o caminho FITS mono funcione antes de avançar.
+
+Passos:
+1. Validar `single_cutout_fits` da implementação legacy (`DesCutout`) usando um script de depuração que execute um corte mono (uma banda) e escreva um FITS em `/data/results`. Verificar integridade com `astropy.io.fits.open`.
+2. Validar `single_cutout_png` (mono) usando o mesmo script: geracao via `single_cutout_png` e abertura com PIL/visualizacao simples.
+3. Validar composição RGB (`single_cutout_png` com `band='gri'` ou `color=true` na pipeline nova): garantir que cada banda produz um FITS parcial e que o empilhamento gera um PNG visivel.
+4. Se qualquer passo falhar, acrescentar logs detalhados (shapes, min/max, nan counts, dtype) e pequenos scripts de inspeção para cada FITS temporario criado.
+
+Entregaveis:
+- `scripts/debug_cutout.py` (script de depuracao que reproduz as chamadas comentadas em `des_cutout.py` e salva artefatos em `/data/results/debug/`).
+- Atualizacao breve de `STATUS_IMPLEMENTACAO_SYNC.md` com o registro do problema, passos de depuracao e responsavel.
+
+Critérios de aceite para depuracao:
+- `scripts/debug_cutout.py` executa dentro do container e produz um FITS mono legivel por `astropy.io.fits`.
+- PNG mono criado abre com PIL e tem bytes > 0.
+- Logs e artefatos temporarios gravados em `/data/results/debug/` para inspeção.
+
+Sequencia desejada de acao:
+1. Criar `scripts/debug_cutout.py` e commitar.
+2. Executar o script dentro do container e coletar logs/artefatos.
+3. Corrigir a funcao que falha (se for o caso) e reexecutar.
+4. Depois do FITS mono OK, avançar para PNG mono e por fim RGB.
+
+Tempo estimado: 1-2 horas para diagnostico e consertos menores (depende de complexidade dos erros observados).
+
 Implementacao esperada:
 - Engine legacy: manter comportamento atual de referencia DES para PNG.
 - Engine astrocut: implementar caminho de composicao RGB (3 bandas) e caminho monocromatico (1 banda).
