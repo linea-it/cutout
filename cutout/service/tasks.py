@@ -39,6 +39,7 @@ def image_cutout(
     result = cutout_engine.run_cutout(
         source_id=source_id,
         stencil=stencil,
+        input_files=files,
         band=band,
         output_format=format,
         output_path=path,

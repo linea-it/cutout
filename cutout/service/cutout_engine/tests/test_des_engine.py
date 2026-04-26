@@ -23,6 +23,7 @@ def test_des_cutout_engine_delegates_to_cutout(monkeypatch):
     result = engine.run_cutout(
         source_id="des_dr2",
         stencil={"type": "circle", "center": {"ra": 10.0, "dec": -1.0}, "radius": 1.0},
+        input_files=["/tmp/source.fits.fz"],
         band="g",
         output_format="fits",
         output_path="/tmp/out.fits",

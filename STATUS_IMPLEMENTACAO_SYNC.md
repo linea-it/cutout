@@ -22,8 +22,9 @@ Checklist de atualizacao:
 - Fase 1 (discovery desacoplado): concluida
 - Fase 1.5 (policy de acesso por survey): concluida
 - Fase 2 (orquestracao sync via celery): concluida
-- Fase 3 (adapter de engine): concluida (com fallback astrocut -> legacy)
-- Fase 4 (descoberta VO remota): nao iniciada
+- Fase 3 (adapter de engine): concluida
+- Fase 3.1 (astrocut nativo com discovery DES): concluida
+- Fase 4 (descoberta VO remota): adiada (decisao de arquitetura pendente)
 
 ## Regras de negocio vigentes
 
@@ -37,6 +38,7 @@ Checklist de atualizacao:
 8. A API aceita selecao de engine via parametro `engine`.
 9. Engine default atual: `astrocut`.
 10. Engine legado permanece disponivel via `engine=legacy`.
+11. Discovery de arquivos permanece no backend DES/CSV nesta etapa (sem SIA/TAP por enquanto).
 
 ## Decisoes tecnicas registradas
 
@@ -45,6 +47,7 @@ Checklist de atualizacao:
 3. Validar cada fase dentro de container antes de commit.
 4. Trabalhar em fases pequenas: implementar, testar, validar, commit.
 5. Durante fase de aprovacao, manter multiplas ferramentas de cutout ativas para comparacao controlada.
+6. Adiar integracao SIA/TAP ate definicao arquitetural formal; manter estabilidade com discovery DES local.
 
 ## Historico de implementacao
 
@@ -207,3 +210,46 @@ Smoke test relevante:
 Status:
 - Fase 3 finalizada para aprovacao funcional com duas opcoes de ferramenta.
 - Integracao nativa do astrocut permanece como evolucao da fase seguinte.
+
+### Entrada 2026-04-26 - Checkpoint de compatibilidade de dependencias
+
+Resumo:
+- Validada compatibilidade do ambiente com novas versoes cientificas.
+- Confirmado funcionamento do modo legado DES apos upgrade.
+
+Dependencias em runtime (container django):
+- numpy 2.4.4
+- astropy 7.2.0
+- astrocut 1.2.0
+
+Validacao executada:
+- docker compose exec django pytest cutout/service/tests/test_tasks.py cutout/service/discovery/tests/test_des_csv_locator.py cutout/service/cutout_engine/tests/test_des_engine.py -q
+- docker compose exec django python manage.py shell -c "... engine=legacy ..."
+- Resultado: testes verdes e endpoint sync legacy retornando 200 (streaming, application/fits)
+
+### Entrada 2026-04-26 - Fase 3.1 (Astrocut nativo com discovery DES)
+
+Resumo:
+- Removido fallback `astrocut -> legacy` no engine Astrocut.
+- Integrada chamada nativa ao `astrocut.fits_cut` para pedidos `CIRCLE` em `fits`.
+- Mantida descoberta de arquivos no locator DES/CSV atual (sem SIA nesta fase).
+- Task passou a repassar a lista de arquivos de entrada para o engine selecionado.
+
+Arquivos alterados:
+- cutout/service/cutout_engine/base.py
+- cutout/service/cutout_engine/des_engine.py
+- cutout/service/cutout_engine/astrocut_engine.py
+- cutout/service/tasks.py
+- cutout/service/cutout_engine/tests/test_des_engine.py
+- cutout/service/cutout_engine/tests/test_astrocut_engine.py
+
+Validacao executada:
+- docker compose exec django isort --check-only cutout/service/cutout_engine/astrocut_engine.py cutout/service/cutout_engine/tests/test_astrocut_engine.py cutout/service/cutout_engine/tests/test_des_engine.py cutout/service/tasks.py cutout/service/cutout_engine/base.py cutout/service/cutout_engine/des_engine.py
+- docker compose exec django black --check cutout/service/cutout_engine/astrocut_engine.py cutout/service/cutout_engine/tests/test_astrocut_engine.py cutout/service/cutout_engine/tests/test_des_engine.py cutout/service/tasks.py cutout/service/cutout_engine/base.py cutout/service/cutout_engine/des_engine.py
+- docker compose exec django pytest cutout/service/cutout_engine/tests/test_des_engine.py cutout/service/cutout_engine/tests/test_astrocut_engine.py cutout/service/cutout_engine/tests/test_factory.py cutout/service/tests/test_tasks.py cutout/service/tests/test_cutout_parameters.py cutout/service/discovery/tests/test_des_csv_locator.py -q
+- docker compose exec django python manage.py shell -c "... engine=legacy e engine=astrocut ..."
+- Resultado: 17 passed; `engine=legacy` e `engine=astrocut` com status 200 e streaming FITS.
+
+Status:
+- Fase 3.1 concluida.
+- Proxima etapa permanece focada em estabilizacao/expansao do engine astrocut sem alterar discovery DES.

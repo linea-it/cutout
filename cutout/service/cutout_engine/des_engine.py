@@ -14,6 +14,7 @@ class DesCutoutEngine(CutoutEngine):
         *,
         source_id: str,
         stencil: dict[str, Any],
+        input_files: list[str] | None,
         band: str,
         output_format: str,
         output_path: str | Path,
