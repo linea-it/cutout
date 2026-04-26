@@ -4,6 +4,10 @@ Data: 2026-04-26
 Escopo: endpoint sync primeiro, com modulo separado de descoberta de arquivos para DES
 Publico: humanos + agentes de AI
 
+Atualizacao de prioridade (2026-04-26):
+- Este plano foi reordenado para refletir a execucao por prioridade de negocio (1 a 6).
+- A semantica de erro em `text/plain` continua no plano geral SODA, mas foi explicitamente movida para depois da fase async.
+
 ## 1) Status de protocolos IVOA (atualizacao)
 
 Baseado na pagina de standards do IVOA (https://www.ivoa.net/documents/):
@@ -362,3 +366,125 @@ Prioridade imediata:
 - estabilizar sync
 - extrair descoberta de arquivos para modulo proprio
 - manter possibilidade de troca do motor de recorte para astrocut.
+
+## 12) Replanejamento priorizado (ordem de execucao)
+
+## 12.1 Panorama do que ja esta pronto
+
+- Discovery DES/CSV desacoplado com suporte de parse e descoberta para CIRCLE, RANGE e POLYGON.
+- Policy de acesso por survey integrada antes do discovery.
+- Pipeline sync com Celery e fases de job (PENDING/QUEUED/EXECUTING/COMPLETED/ERROR).
+- Selecao de engine por parametro (`astrocut` default e `legacy` disponivel).
+- Astrocut nativo atualmente operacional para `format=fits` com stencil `circle`.
+
+## 12.2 Prioridade 1 - Suporte a PNG (inclui PNG colorido)
+
+Objetivo:
+- Adicionar `format=png` no pipeline sync, com suporte a PNG monocromatico e RGB.
+
+Decisao de compatibilidade IVOA:
+- Em SODA 1.0 nao existe parametro padrao para "PNG colorido"/composicao RGB.
+- SODA define parametros como ID, POS/CIRCLE/POLYGON, BAND, TIME e POL; custom parameters sao permitidos.
+- Portanto, o modo colorido sera extensao local documentada no contrato.
+
+Contrato proposto:
+- `format=png` ativa saida PNG.
+- Novo parametro `color` (boolean):
+  - `color=false` (default): PNG de banda unica.
+  - `color=true`: PNG RGB composto.
+- Novo parametro opcional `rgb_bands` (string): default `gri`.
+  - Exemplo: `rgb_bands=gri` ou `rgb_bands=riz`.
+- Regra de negocio:
+  - Se `color=true` e `band` vier com banda unica, `rgb_bands` prevalece para composicao.
+  - Se `color=false`, usa apenas `band`.
+
+Implementacao esperada:
+- Engine legacy: manter comportamento atual de referencia DES para PNG.
+- Engine astrocut: implementar caminho de composicao RGB (3 bandas) e caminho monocromatico (1 banda).
+- Task/policy: encaminhar `format`, `color` e bandas efetivas para o engine.
+
+Criterios de aceite:
+- `format=png&color=false&band=g` retorna PNG valido.
+- `format=png&color=true&rgb_bands=gri` retorna PNG RGB valido.
+- Validacoes claras para combinacoes invalidas de parametros.
+
+## 12.3 Prioridade 2 - RANGE/POLYGON ponta a ponta
+
+Objetivo:
+- Garantir RANGE/POLYGON no fluxo completo da engine default, nao apenas no parse/discovery.
+
+Escopo:
+- Completar suporte do `astrocut` para RANGE e POLYGON.
+- Se houver limitacao da biblioteca, implementar adaptacao geometrica controlada (ex: conversao para janela equivalente) sem quebrar contrato.
+
+Criterios de aceite:
+- Requests sync com `POS=RANGE ...` e `POS=POLYGON ...` executam com `engine=astrocut` e retornam resultado valido.
+- Testes de integracao cobrindo CIRCLE/RANGE/POLYGON com engine default.
+
+## 12.4 Prioridade 3 - Parametro para persistir resultado em data/results
+
+Objetivo:
+- Permitir controlar se o arquivo final sera persistido localmente em `data/results`.
+
+Contrato proposto:
+- Novo parametro `persist` (boolean):
+  - `persist=false` (default): comportamento atual de resposta sync sem compromisso de retencao longa.
+  - `persist=true`: manter arquivo final em `data/results`.
+
+Regras:
+- Definir naming deterministico por job/runid e evitar sobrescrita acidental.
+- Registrar caminho final quando persistido.
+
+Criterios de aceite:
+- `persist=true` preserva arquivo em `data/results`.
+- `persist=false` nao cria persistencia adicional alem do necessario para stream/resposta.
+
+## 12.5 Prioridade 4 - Registro em banco para todos os pedidos sync
+
+Objetivo:
+- Registrar auditoria completa de cada pedido de cutout sync.
+
+Campos minimos:
+- usuario solicitante
+- parametros usados
+- status final (gerou resultado ou nao)
+- tamanho do resultado em bytes
+- tempo total de execucao
+
+Observacao:
+- Parte da estrutura ja existe via `Job`, `JobParameter`, `JobResult`, `start_time` e `end_time`, mas falta consolidar populacao obrigatoria para sync em todos os cenarios.
+
+Criterios de aceite:
+- Cada chamada sync gera registro auditavel com os campos minimos.
+- Consultas administrativas conseguem listar historico por usuario e periodo.
+
+## 12.6 Prioridade 5 - Atualizacao OpenAPI
+
+Objetivo:
+- Atualizar schema do endpoint sync com novos parametros e semantica atual.
+
+Escopo minimo:
+- Documentar `format=png`, `color`, `rgb_bands`, `persist`.
+- Documentar suporte de POS (CIRCLE/RANGE/POLYGON) e limites conhecidos por engine.
+- Documentar exemplos de request/response para FITS e PNG.
+
+Criterios de aceite:
+- OpenAPI e exemplos de uso alinhados com o comportamento real da API.
+
+## 12.7 Prioridade 6 - Semantica de errors (postergada)
+
+Decisao:
+- Manter erros em JSON por enquanto.
+- Migracao para semantica SODA/DALI (`text/plain` com prefixos padrao) fica para depois da fase async.
+
+Criterios de aceite futuro:
+- Contrato de erro unico para sync/async alinhado ao padrao IVOA.
+
+## 13) Backlog operacional imediato (proxima sprint)
+
+1. Implementar prioridade 1 (PNG mono + colorido) incluindo parametro `color` e `rgb_bands`.
+2. Fechar prioridade 2 (RANGE/POLYGON ponta a ponta no engine default).
+3. Incluir prioridade 3 (`persist`) e registro de caminho final.
+4. Fechar prioridade 4 (auditoria completa sync em banco).
+5. Atualizar prioridade 5 (OpenAPI e exemplos curl).
+6. Manter prioridade 6 explicitamente adiada ate fase async.

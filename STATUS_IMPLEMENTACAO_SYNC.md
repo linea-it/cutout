@@ -26,6 +26,32 @@ Checklist de atualizacao:
 - Fase 3.1 (astrocut nativo com discovery DES): concluida
 - Fase 4 (descoberta VO remota): adiada (decisao de arquitetura pendente)
 
+## Prioridades atuais (replanejamento 2026-04-26)
+
+1. PNG (saida png, incluindo composicao colorida): pendente
+2. RANGE/POLYGON ponta a ponta no engine default: parcial
+3. Parametro para persistir resultado em `data/results`: pendente
+4. Registro completo de pedidos sync no banco: parcial
+5. Atualizacao OpenAPI: parcial
+6. Semantica de errors padrao SODA/DALI: adiada para pos-fase-async (manter JSON por ora)
+
+## Resumo consolidado do que ja foi feito
+
+- Pipeline sync com Celery e espera sincrona no endpoint implementado.
+- Registro de job com usuario e parametros implementado (`Job` + `JobParameter`).
+- Fases de execucao registradas (PENDING/QUEUED/EXECUTING/COMPLETED/ERROR).
+- Discovery DES/CSV separado da API com suporte de CIRCLE/RANGE/POLYGON na descoberta.
+- Policy de survey integrada antes do discovery.
+- Selecao de engine operacional (`astrocut` default, `legacy` alternativo).
+- Astrocut nativo implementado para CIRCLE em FITS.
+
+## Lacunas tecnicas relevantes para o novo plano
+
+- Astrocut ainda restrito a `circle` e `fits`, impactando prioridades 1 e 2.
+- Falta contrato de persistencia controlada por parametro (prioridade 3).
+- Falta consolidar auditoria de resultado (sucesso, tamanho e tempo total) em todos os fluxos sync (prioridade 4).
+- OpenAPI ainda nao cobre novos parametros planejados de PNG colorido e persistencia (prioridade 5).
+
 ## Regras de negocio vigentes
 
 1. Tipos espaciais aceitos no parse: CIRCLE, RANGE, POLYGON.
@@ -110,14 +136,15 @@ Smoke test de autorizacao:
 Commit:
 - b332e38 - feat(policy): add survey access layer before discovery dispatch
 
-## Proxima fase planejada
+## Proxima fase planejada (repriorizada)
 
-Fase 3 - Adapter de engine de cutout
+Fase P1/P2 - PNG + RANGE/POLYGON no engine default
 
 Objetivos imediatos:
-1. Introduzir interface de engine para desacoplar a API do backend de recorte.
-2. Adaptar implementacao atual (DES) para o contrato novo sem quebrar endpoint sync.
-3. Preparar ponto de troca para Astrocut em configuracao futura.
+1. Implementar `format=png` no fluxo sync (mono e RGB).
+2. Introduzir parametro explicito para PNG colorido (`color`) e bandas RGB (`rgb_bands`, default `gri`).
+3. Fechar execucao ponta a ponta de RANGE/POLYGON com `engine=astrocut`.
+4. Validar comportamento com testes e curls de regressao para CIRCLE/RANGE/POLYGON em FITS e PNG.
 
 ### Entrada 2026-04-26 - Preparacao da Fase 3
 
@@ -253,3 +280,21 @@ Validacao executada:
 Status:
 - Fase 3.1 concluida.
 - Proxima etapa permanece focada em estabilizacao/expansao do engine astrocut sem alterar discovery DES.
+
+### Entrada 2026-04-26 - Replanejamento orientado a prioridade
+
+Resumo:
+- Plano e status foram atualizados para ordem de execucao por prioridade de negocio (1 a 6).
+- Prioridades 1 e 2 tornaram-se foco imediato de implementacao.
+- Priorizacao de semantica de erro foi formalmente adiada para depois da fase async.
+
+Nota de compatibilidade IVOA para prioridade 1:
+- Nao foi identificado parametro padrao em SODA 1.0 para requisitar "PNG colorido/RGB".
+- O padrao permite parametros customizados; portanto o comportamento sera documentado como extensao local.
+
+Arquivos alterados nesta entrada:
+- PLANO_SYNC_IVOA_DES_DESCOBERTA.md
+- STATUS_IMPLEMENTACAO_SYNC.md
+
+Status:
+- Replanejamento aplicado e pronto para execucao incremental.
