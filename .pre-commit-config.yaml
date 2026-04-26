@@ -1,4 +1,4 @@
-exclude: '^docs/|/migrations/'
+exclude: '^data/|/logs/'
 default_stages: [commit]
 
 repos:
@@ -19,11 +19,6 @@ repos:
     rev: v1.0.0
     hooks:
     - id: check-json5
-  - repo: https://github.com/adamchainz/django-upgrade
-    rev: '1.14.0'
-    hooks:
-      - id: django-upgrade
-        args: ['--target-version', '4.2']
 
   - repo: https://github.com/asottile/pyupgrade
     rev: v3.10.1
@@ -51,12 +46,6 @@ repos:
   #   rev: 6.1.0
   #   hooks:
   #     - id: flake8
-
-  - repo: https://github.com/Riverside-Healthcare/djLint
-    rev: v1.32.1
-    hooks:
-      - id: djlint-reformat-django
-      - id: djlint-django
 
 # sets up .pre-commit-ci.yaml to ensure pre-commit dependencies stay up to date
 ci:

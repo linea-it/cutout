@@ -286,3 +286,6 @@ data/results/*.fits
 data/tiles/*.fz
 data/tiles/*.fits
 data/tmp/*.fits
+
+data/original_files/*.tar.gz
+data/tiles/Y6A1/*
