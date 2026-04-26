@@ -134,6 +134,14 @@ cutout_schema = extend_schema(
             allow_blank=False,
             many=False,
             description=("One of grizY"),
+        ),
+        OpenApiParameter(
+            name="engine",
+            type=str,
+            allow_blank=False,
+            many=False,
+            default="astrocut",
+            description=("Cutout backend engine. Supported values: astrocut, legacy"),
         )
         # TODO: Band estudar a implementacao do parametro BAND. IVOA/SODA/WD-SODA 3.2.2
     ],

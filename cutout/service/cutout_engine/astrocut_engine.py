@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import CutoutEngine
+from .des_engine import DesCutoutEngine
 
 
 class AstrocutEngine(CutoutEngine):
@@ -16,4 +17,11 @@ class AstrocutEngine(CutoutEngine):
         output_format: str,
         output_path: str | Path,
     ) -> Path:
-        raise NotImplementedError("AstrocutEngine will be implemented in a future phase")
+        # Temporary fallback: keep astrocut API option functional using the current DES engine.
+        return DesCutoutEngine().run_cutout(
+            source_id=source_id,
+            stencil=stencil,
+            band=band,
+            output_format=output_format,
+            output_path=output_path,
+        )

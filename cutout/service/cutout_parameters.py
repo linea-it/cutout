@@ -23,6 +23,8 @@ class CutoutParameters:
 
     formats: list[str]
 
+    engines: list[str]
+
     @classmethod
     def from_job_parameters(cls, params: list[JobParameter]) -> CutoutParameters:
         """Convert generic UWS parameters to the image cutout parameters.
@@ -45,6 +47,7 @@ class CutoutParameters:
         ids = []
         formats = []
         bands = []
+        engines = []
         stencils = []
         try:
             for param in params:
@@ -54,6 +57,8 @@ class CutoutParameters:
                     formats.append(param.value)
                 elif param.parameter_id == "band":
                     bands.append(param.value)
+                elif param.parameter_id == "engine":
+                    engines.append(param.value)
                 else:
                     f = parse_stencil(param.parameter_id.upper(), param.value)
                     stencils.append(f)
@@ -64,4 +69,4 @@ class CutoutParameters:
             raise InvalidCutoutParameterError("No dataset ID given", params)
         if not stencils:
             raise InvalidCutoutParameterError("No cutout stencil given", params)
-        return cls(ids=ids, formats=formats, bands=bands, stencils=stencils)
+        return cls(ids=ids, formats=formats, bands=bands, engines=engines, stencils=stencils)

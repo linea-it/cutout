@@ -2,9 +2,8 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from config import celery_app
-from cutout.lib.cutout import Cutout
 from cutout.lib.des_cutout import DesCutout
-from cutout.service.uws.job import uws_job_completed
+from cutout.service.cutout_engine import create_cutout_engine
 
 
 def _validate_input_files(files: List[str] | None) -> None:
@@ -29,14 +28,21 @@ def image_cutout(
     job_id: str,
     source_id: str,
     stencil: Dict[str, Any],
+    engine: str,
     band: str,
     format: str,
     path: str,
     files: List[str] | None = None,
 ) -> str:
     _validate_input_files(files)
-    ct = Cutout(source_id, stencil, band, format)
-    result = ct.create(path)
+    cutout_engine = create_cutout_engine(engine)
+    result = cutout_engine.run_cutout(
+        source_id=source_id,
+        stencil=stencil,
+        band=band,
+        output_format=format,
+        output_path=path,
+    )
     return str(result)
 
 

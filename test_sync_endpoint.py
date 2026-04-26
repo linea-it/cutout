@@ -48,6 +48,7 @@ def call_sync(
     token: str,
     survey_id: str,
     pos: str,
+    engine: str,
     output_format: str,
     band: str,
 ) -> tuple[int, str, bytes]:
@@ -55,6 +56,7 @@ def call_sync(
         {
             "id": survey_id,
             "pos": pos,
+            "engine": engine,
             "format": output_format,
             "band": band,
         }
@@ -79,6 +81,7 @@ def main() -> int:
     parser.add_argument("--password", required=True, help="Django password")
     parser.add_argument("--id", default="des_dr2", dest="survey_id", help="Survey ID")
     parser.add_argument("--pos", default="CIRCLE 36.30911 -10.18749 2", help="POS value")
+    parser.add_argument("--engine", default="astrocut", help="Engine name: astrocut or legacy")
     parser.add_argument("--format", default="fits", dest="output_format", help="Output format")
     parser.add_argument("--band", default="g", help="Band")
     parser.add_argument(
@@ -97,6 +100,7 @@ def main() -> int:
             token=token,
             survey_id=args.survey_id,
             pos=args.pos,
+            engine=args.engine,
             output_format=args.output_format,
             band=args.band,
         )

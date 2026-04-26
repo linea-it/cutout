@@ -86,6 +86,7 @@ class ImageCutoutPolicy(UWSPolicy):
                     source_id=t["id"],
                     stencil=t["stencil"],
                     files=[str(f.file_path) for f in files if f.file_path],
+                    engine=t["engine"],
                     band=t["band"],
                     format=t["format"],
                     path=str(resultfile),
@@ -134,6 +135,8 @@ class ImageCutoutPolicy(UWSPolicy):
             raise MultiValuedParameterError("Only one ID supported")
         if len(cutout_params.stencils) != 1:
             raise MultiValuedParameterError("Only one stencil is supported")
+        if len(cutout_params.engines) > 1:
+            raise MultiValuedParameterError("Only one engine is supported")
 
     def convert_to_list_of_task_params(self, cutouts) -> List:
         params = []
@@ -141,14 +144,17 @@ class ImageCutoutPolicy(UWSPolicy):
         for id in cutouts.ids:
             for format in cutouts.formats:
                 for band in cutouts.bands:
-                    for stencil in cutouts.stencils:
-                        params.append(
-                            {
-                                "id": id,
-                                "stencil_obj": stencil,
-                                "stencil": stencil.to_dict(),
-                                "band": band,
-                                "format": format,
-                            }
-                        )
+                    engines = cutouts.engines or ["astrocut"]
+                    for engine in engines:
+                        for stencil in cutouts.stencils:
+                            params.append(
+                                {
+                                    "id": id,
+                                    "stencil_obj": stencil,
+                                    "stencil": stencil.to_dict(),
+                                    "band": band,
+                                    "format": format,
+                                    "engine": engine,
+                                }
+                            )
         return params

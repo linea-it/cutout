@@ -22,7 +22,7 @@ Checklist de atualizacao:
 - Fase 1 (discovery desacoplado): concluida
 - Fase 1.5 (policy de acesso por survey): concluida
 - Fase 2 (orquestracao sync via celery): concluida
-- Fase 3 (adapter de engine): nao iniciada
+- Fase 3 (adapter de engine): concluida (com fallback astrocut -> legacy)
 - Fase 4 (descoberta VO remota): nao iniciada
 
 ## Regras de negocio vigentes
@@ -34,6 +34,9 @@ Checklist de atualizacao:
 5. Camada de policy de survey roda antes do discovery.
 6. Policy inicial libera des_dr2 e nega surveys nao reconhecidos.
 7. Durante execucao da task, se o arquivo esperado nao estiver acessivel no disco local, a API retorna erro explicito de arquivo indisponivel.
+8. A API aceita selecao de engine via parametro `engine`.
+9. Engine default atual: `astrocut`.
+10. Engine legado permanece disponivel via `engine=legacy`.
 
 ## Decisoes tecnicas registradas
 
@@ -41,6 +44,7 @@ Checklist de atualizacao:
 2. Estruturar policy de acesso com interface separada para permitir evolucao futura para surveys privados.
 3. Validar cada fase dentro de container antes de commit.
 4. Trabalhar em fases pequenas: implementar, testar, validar, commit.
+5. Durante fase de aprovacao, manter multiplas ferramentas de cutout ativas para comparacao controlada.
 
 ## Historico de implementacao
 
@@ -164,3 +168,42 @@ Smoke test relevante:
 Status:
 - Fase 2 finalizada no codigo.
 - Comportamento de erro para indisponibilidade de arquivo local validado conforme requisito de ambiente de testes parcial.
+
+### Entrada 2026-04-26 - Fase 3
+
+Resumo:
+- Integrada camada de selecao de engine no pipeline de cutout.
+- Implementado factory para escolha de backend por nome de engine.
+- Mantida ferramenta antiga funcional como opcao (`legacy`).
+- Definido `astrocut` como default da API.
+- Nesta fase, `astrocut` usa fallback controlado para engine legado para manter operacao funcional durante aprovacao.
+
+Arquivos criados:
+- cutout/service/cutout_engine/factory.py
+- cutout/service/cutout_engine/tests/test_factory.py
+- cutout/service/cutout_engine/tests/test_astrocut_engine.py
+- cutout/service/tests/test_cutout_parameters.py
+
+Arquivos alterados:
+- cutout/service/api/views.py
+- cutout/service/cutout_engine/__init__.py
+- cutout/service/cutout_engine/astrocut_engine.py
+- cutout/service/cutout_parameters.py
+- cutout/service/policy.py
+- cutout/service/tasks.py
+- test_sync_endpoint.py
+- CURL_TESTES_SYNC.md
+
+Validacao executada:
+- docker compose exec django black --check cutout/service/api/views.py cutout/service/cutout_parameters.py cutout/service/policy.py cutout/service/tasks.py cutout/service/cutout_engine test_sync_endpoint.py
+- docker compose exec django isort --check-only cutout/service/api/views.py cutout/service/cutout_parameters.py cutout/service/policy.py cutout/service/tasks.py cutout/service/cutout_engine test_sync_endpoint.py
+- docker compose exec django pytest cutout/service/cutout_engine/tests/test_des_engine.py cutout/service/cutout_engine/tests/test_factory.py cutout/service/cutout_engine/tests/test_astrocut_engine.py cutout/service/tests/test_tasks.py cutout/service/tests/test_cutout_parameters.py -q
+- Resultado: 10 passed
+
+Smoke test relevante:
+- `engine=legacy` em `/api/sync`: status 200 (streaming)
+- `engine=astrocut` em `/api/sync`: status 200 (streaming)
+
+Status:
+- Fase 3 finalizada para aprovacao funcional com duas opcoes de ferramenta.
+- Integracao nativa do astrocut permanece como evolucao da fase seguinte.

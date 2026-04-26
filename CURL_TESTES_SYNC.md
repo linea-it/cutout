@@ -33,6 +33,7 @@ curl -i -G "http://localhost:8000/api/sync" \
   -H "Authorization: Token $TOKEN" \
   --data-urlencode "id=des_dr2" \
   --data-urlencode "pos=CIRCLE 36.30911 -10.18749 2" \
+  --data-urlencode "engine=astrocut" \
   --data-urlencode "format=fits" \
   --data-urlencode "band=g"
 ```
@@ -47,6 +48,7 @@ curl -s -G "http://localhost:8000/api/sync" \
   -H "Authorization: Token $TOKEN" \
   --data-urlencode "id=des_dr2" \
   --data-urlencode "pos=CIRCLE 36.30911 -10.18749 0.01" \
+  --data-urlencode "engine=legacy" \
   --data-urlencode "format=fits" \
   --data-urlencode "band=g" \
   -o sync_result_test.fits
@@ -59,6 +61,7 @@ curl -i -G "http://localhost:8000/api/sync" \
   -H "Authorization: Token $TOKEN" \
   --data-urlencode "id=private_survey" \
   --data-urlencode "pos=CIRCLE 36.30911 -10.18749 0.01" \
+  --data-urlencode "engine=astrocut" \
   --data-urlencode "format=fits" \
   --data-urlencode "band=g"
 ```
@@ -67,5 +70,5 @@ curl -i -G "http://localhost:8000/api/sync" \
 
 ```bash
 TOKEN=$(curl -s -X POST "http://localhost:8000/auth-token/" -H "Content-Type: application/json" -d '{"username":"SEU_USUARIO","password":"SUA_SENHA"}' | python -c "import sys,json; print(json.load(sys.stdin)['token'])")
-curl -i -G "http://localhost:8000/api/sync" -H "Authorization: Token $TOKEN" --data-urlencode "id=des_dr2" --data-urlencode "pos=CIRCLE 36.30911 -10.18749 0.01" --data-urlencode "format=fits" --data-urlencode "band=g"
+curl -i -G "http://localhost:8000/api/sync" -H "Authorization: Token $TOKEN" --data-urlencode "id=des_dr2" --data-urlencode "pos=CIRCLE 36.30911 -10.18749 0.01" --data-urlencode "engine=astrocut" --data-urlencode "format=fits" --data-urlencode "band=g"
 ```
