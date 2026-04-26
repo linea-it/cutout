@@ -155,6 +155,13 @@ def run_engine(engine_name, stencil, band, fmt, files=None):
             except Exception:
                 files = files or []
 
+        print('  input_files passed to engine:', files)
+        # Build extra kwargs (e.g., color/rgb_bands) for multi-band PNG tests
+        extra_kwargs = {}
+        if engine_name == 'astrocut' and fmt == 'png' and isinstance(band, str) and len(band) > 1 and ',' not in band and ' ' not in band:
+            extra_kwargs['color'] = True
+            extra_kwargs['rgb_bands'] = band
+
         res = engine.run_cutout(
             source_id="des_dr2",
             stencil=stencil,
@@ -162,6 +169,7 @@ def run_engine(engine_name, stencil, band, fmt, files=None):
             band=band,
             output_format=fmt,
             output_path=out,
+            **extra_kwargs,
         )
         print("  produced:", res)
         if fmt == "fits":
@@ -212,10 +220,9 @@ def main():
                 run_engine("legacy", stencil, band, "png")
                 run_engine("astrocut", stencil, band, "png")
             else:
-                # multi-band: build mapping band->files via discovery? For debug, pass empty mapping to engine and let it fail visibly
-                files_map = {b: [] for b in band}
+                # multi-band: let run_engine perform discovery/uncompress for each band
                 run_engine("legacy", stencil, band, "png", files=None)
-                run_engine("astrocut", stencil, band, "png", files=files_map)
+                run_engine("astrocut", stencil, band, "png", files=None)
 
 
 if __name__ == "__main__":

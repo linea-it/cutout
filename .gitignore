@@ -290,3 +290,4 @@ data/tmp/*.fits
 
 data/original_files/*.tar.gz
 data/tiles/Y6A1/*
+data/results/debug/*

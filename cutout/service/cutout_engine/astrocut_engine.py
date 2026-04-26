@@ -42,6 +42,11 @@ class AstrocutEngine(CutoutEngine):
         radius_arcmin = stencil["radius"]
         coordinate = SkyCoord(ra=center["ra"] * u.deg, dec=center["dec"] * u.deg, frame="icrs")
 
+        # Debug info: log input files and parameters
+        print(f"[astrocut] run_cutout: source_id={source_id} band={band} output_format={output_format} color={color} rgb_bands={rgb_bands} persist={persist}")
+        print(f"[astrocut] run_cutout: stencil center={center} radius={radius_arcmin}")
+        print(f"[astrocut] run_cutout: input_files={input_files}")
+
         # For FITS, reuse fits_cut
         if output_format == "fits":
             result = fits_cut(
@@ -52,6 +57,8 @@ class AstrocutEngine(CutoutEngine):
                 cutout_prefix=output_path.stem,
                 output_dir=output_path.parent,
             )
+
+            print(f"[astrocut] fits_cut produced {result}")
 
             result_path = Path(result)
             if result_path != output_path:
@@ -85,6 +92,7 @@ class AstrocutEngine(CutoutEngine):
                     raise ValueError(f"No input files provided for band {b}")
 
                 temp_fits = output_path.with_name(f"{output_path.stem}_{b}.fits")
+                print(f"[astrocut] creating temp fits for band {b} at {temp_fits} using files {files_b}")
                 res = fits_cut(
                     input_files=files_b,
                     coordinates=coordinate,
@@ -93,6 +101,7 @@ class AstrocutEngine(CutoutEngine):
                     cutout_prefix=temp_fits.stem,
                     output_dir=temp_fits.parent,
                 )
+                print(f"[astrocut] fits_cut for band {b} produced {res}")
                 temp_paths.append(Path(res))
 
             # Read arrays: find first HDU with data in each FITS (astrocut writes CUTOUT extension)
@@ -105,7 +114,9 @@ class AstrocutEngine(CutoutEngine):
                             break
                     if data_hdu is None:
                         raise ValueError(f"No data HDU found in {p}")
-                    arrays.append(np.nan_to_num(data_hdu).astype(float))
+                    arr = np.nan_to_num(data_hdu).astype(float)
+                    print(f"[astrocut] read array from {p}: dtype={arr.dtype} shape={arr.shape} min={arr.min()} max={arr.max()}")
+                    arrays.append(arr)
 
             # Ensure same shape by cropping to minimal shape
             min_rows = min(a.shape[0] for a in arrays)
@@ -122,8 +133,10 @@ class AstrocutEngine(CutoutEngine):
 
             # Stack channels into RGB (order: channels[0]->R, [1]->G, [2]->B)
             rgb = np.dstack(chans[:3]) if len(chans) >= 3 else np.dstack([chans[0]] * 3)
+            print(f"[astrocut] composing RGB image shape={rgb.shape} dtype={rgb.dtype}")
             img = Image.fromarray(rgb, mode="RGB")
             img.save(output_path)
+            print(f"[astrocut] saved PNG at {output_path} size={output_path.stat().st_size}")
 
             # Cleanup temps
             for p in temp_paths:
@@ -147,6 +160,7 @@ class AstrocutEngine(CutoutEngine):
 
         result_path = Path(result)
 
+        print(f"[astrocut] mono fits_cut produced {result_path}")
         with fits.open(result_path) as hdul:
             data_hdu = None
             for h in hdul:

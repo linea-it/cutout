@@ -93,7 +93,18 @@ class ImageCutoutPolicy(UWSPolicy):
                     files_b = self._file_locator.find_files(survey_id=t["id"], stencil=t["stencil_obj"], band=b)
                     if not files_b:
                         raise ParameterError(f"No files found for band {b} in the requested region")
-                    files_map[b] = [str(f.file_path) for f in files_b if f.file_path]
+                    # keep only paths that exist on the current filesystem
+                    candidate_paths = [str(f.file_path) for f in files_b if f.file_path]
+                    existing = [p for p in candidate_paths if Path(p).exists()]
+                    if not existing:
+                        raise ParameterError(f"No available files on disk for band {b} in the requested region")
+                    files_map[b] = existing
+
+                # Debug logging: show files_map and existence
+                print(f"[policy] dispatch: files_map for bands={bands}: {files_map}")
+                for band_name, paths in files_map.items():
+                    for p in paths:
+                        print(f"[policy] file check: band={band_name} path={p} exists=True")
 
                 tasks.append(
                     image_cutout.s(
@@ -114,12 +125,16 @@ class ImageCutoutPolicy(UWSPolicy):
                 files = self._file_locator.find_files(survey_id=t["id"], stencil=t["stencil_obj"], band=t["band"])
                 if not files:
                     raise ParameterError("No files found for the requested region")
+                candidate = [str(f.file_path) for f in files if f.file_path]
+                existing = [p for p in candidate if Path(p).exists()]
+                if not existing:
+                    raise ParameterError("No available files on disk for the requested region")
                 tasks.append(
                     image_cutout.s(
                         job_id=job.job_id,
                         source_id=t["id"],
                         stencil=t["stencil"],
-                        files=[str(f.file_path) for f in files if f.file_path],
+                        files=existing,
                         engine=t["engine"],
                         band=t["band"],
                         format=t["format"],
