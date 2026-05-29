@@ -8,24 +8,26 @@
 - [X] Tratar valores do Parametro POS xtype Circle, Range e  Polygon.
 - [x] Classe Base para Cutuots de forma que outros surveys possam ser adicioandos.
 - [] SODA parametro band está em numerico, usamos letras e isso é importante no caso do des por causa dos arquivos. procurar um parametro alternativo para representar as bandas com letras.
-
-
+- [x] Criar uma rota para cada serviço
 - [x] Filenames unicos para os resultados no sync (`/data/results`) com extensao por formato.
-- [] Quanto tempo os arquivos gerados por um job ficam disponiveis para download, antes do garbage collector remover.
-- [] CONFIRMAR se no metodo lupton sempre vai ser usado como gri, a ordem é fixa? como fica para outros surveys.
-- [] Quanto tempo os arquivos fits extraidos ficam disponiveis.
-- [] Como lidar como essa parte do protocolo: 3.2.1 As in DALI, open intervals use  -Inf or +Inf as one limit.
 - [] Implementar respostas de erro no formado esperado pelo SODA.
 - [] Como gerar o token de autenticação usando a autenticação Federada SAML?
-- [] Cutouts anonimos?
 - [] Configurar Ngnix no projeto
-- [] Criar uma rota para cada serviço
-- [] Remover o prefixo /api dos endpoits acessar direto ex: cutout.linea.org.br/sync
 - [] Documentação da Classe Cutout Base
 - [] Documentação da Classe DES Cutout
 - [] Garbage Collector para arquivos fits de imagens descompactados.
 - [] Garbage Collector para resultados.
 - [] Sistema de Quota por espaço
+
+
+Duvidas:
+
+- [] Quanto tempo os arquivos gerados por um job ficam disponiveis para download, antes do garbage collector remover.
+- [] CONFIRMAR se no metodo lupton sempre vai ser usado como gri, a ordem é fixa? como fica para outros surveys.
+- [] Quanto tempo os arquivos fits extraidos ficam disponiveis.
+- [] Como lidar como essa parte do protocolo: 3.2.1 As in DALI, open intervals use  -Inf or +Inf as one limit.
+- [] Cutouts anonimos?
+- [] Remover o prefixo /api dos endpoits acessar direto ex: cutout.linea.org.br/sync ?
 
 ## Cutout Sync DES
 
@@ -42,6 +44,7 @@
 - [] PNGs só tem opção de gerar imagens coloridas, usando gri. (Acredito que de para ter mais opções, png para uma banda só ou outras combinações.)
 - [] Fluxo sync `engine=legacy` + `format=png` ainda com falha (investigar stack completa e cobrir com teste de regressao).
 - [] Criar exemplos de uso da api no Jupyter Notebook.
+- [] Remover o metodo "legacy" (código do adriano) e deixar apenas o astrocut???
 
 ## Cutout Sync LSST
 

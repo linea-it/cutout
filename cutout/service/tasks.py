@@ -1,17 +1,21 @@
+import json
 from pathlib import Path
 from typing import Any, Dict, List, Union
+
+from django.utils import timezone
 
 from config import celery_app
 from cutout.lib.des_cutout import DesCutout
 from cutout.service.cutout_engine import create_cutout_engine
+from cutout.service.models import Job
 
 
-def _validate_input_files(files: List[str] | Dict[str, List[str]] | None) -> None:
+def _validate_input_files(files: list[str] | dict[str, list[str]] | None) -> None:
     if not files:
         return
 
     # normalize to list of paths for existence check
-    paths: List[str] = []
+    paths: list[str] = []
     if isinstance(files, dict):
         for v in files.values():
             paths.extend(v or [])
@@ -24,7 +28,7 @@ def _validate_input_files(files: List[str] | Dict[str, List[str]] | None) -> Non
         raise FileNotFoundError(msg)
 
 
-def _ensure_unpacked(files: List[str] | Dict[str, List[str]] | None) -> Union[List[str], Dict[str, List[str]], None]:
+def _ensure_unpacked(files: list[str] | dict[str, list[str]] | None) -> list[str] | dict[str, list[str]] | None:
     """If any input paths point to compressed `.fz` archives, unpack them to a tmp location and
     return a structure of uncompressed paths suitable for engines like `astrocut`.
 
@@ -38,7 +42,7 @@ def _ensure_unpacked(files: List[str] | Dict[str, List[str]] | None) -> Union[Li
     def _unpack_path(p: str) -> str:
         pth = Path(p)
         if pth.suffix == ".fz":
-            out_name = pth.name.rsplit('.fz', 1)[0]
+            out_name = pth.name.rsplit(".fz", 1)[0]
             out_path = dc.tmp_path.joinpath(out_name)
             if not out_path.exists():
                 try:
@@ -50,7 +54,7 @@ def _ensure_unpacked(files: List[str] | Dict[str, List[str]] | None) -> Union[Li
         return str(p)
 
     if isinstance(files, dict):
-        out: Dict[str, List[str]] = {}
+        out: dict[str, list[str]] = {}
         for k, lst in files.items():
             out[k] = [_unpack_path(p) for p in (lst or [])]
             # log unpacked mapping
@@ -71,17 +75,21 @@ def des_cutout_circle(**kwargs) -> str:
 def image_cutout(
     job_id: str,
     source_id: str,
-    stencil: Dict[str, Any],
+    stencil: dict[str, Any],
     engine: str,
     band: str,
     format: str,
     path: str,
-    files: List[str] | None = None,
+    files: list[str] | None = None,
     color: bool = False,
     rgb_bands: str | None = None,
     persist: bool = False,
 ) -> str:
-    print(f"[tasks] image_cutout START job_id={job_id} engine={engine} band={band} format={format} color={color} rgb_bands={rgb_bands}")
+    print(
+        "[tasks] image_cutout START "
+        f"job_id={job_id} engine={engine} band={band} format={format} "
+        f"color={color} rgb_bands={rgb_bands}"
+    )
     print(f"[tasks] image_cutout initial files={files}")
     # If inputs reference compressed archives, unpack them for engines that require `.fits` files.
     cutout_engine = create_cutout_engine(engine)
@@ -110,6 +118,100 @@ def image_cutout(
     return str(result)
 
 
+def fake_image_cutout(
+    job_id: str,
+    source_id: str,
+    stencil: dict[str, Any],
+    engine: str,
+    band: str,
+    format: str,
+    path: str,
+    files: list[str] | None = None,
+    color: bool = False,
+    rgb_bands: str | None = None,
+    persist: bool = False,
+) -> dict[str, Any]:
+    result_path = Path(path)
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "job_id": job_id,
+        "source_id": source_id,
+        "stencil": stencil,
+        "engine": engine,
+        "band": band,
+        "format": format,
+        "path": path,
+        "files": files or [],
+        "color": color,
+        "rgb_bands": rgb_bands,
+        "persist": persist,
+        "mode": "fake_async_result",
+    }
+    result_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    mime_type = "image/png" if str(format).lower() == "png" else "application/fits"
+    return {
+        "result_id": result_path.stem,
+        "file_path": str(result_path),
+        "mime_type": mime_type,
+        "size": result_path.stat().st_size,
+    }
+
+
+@celery_app.task()
+def run_async_cutout_job(job_id: str, task_params: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    job = Job.objects.get(pk=int(job_id))
+    if job.phase == Job.ExecutionPhase.ABORTED:
+        return []
+
+    job.phase = Job.ExecutionPhase.EXECUTING
+    job.start_time = timezone.now()
+    job.end_time = None
+    job.save(update_fields=["phase", "start_time", "end_time"])
+
+    results: list[dict[str, Any]] = []
+
+    try:
+        job.results.all().delete()
+
+        for task in task_params:
+            result = fake_image_cutout(
+                job_id=job_id,
+                source_id=task["id"],
+                stencil=task["stencil"],
+                engine=task["engine"],
+                band=task["band"],
+                format=task["format"],
+                path=task["path"],
+                files=task.get("files"),
+                color=task.get("color", False),
+                rgb_bands=task.get("rgb_bands"),
+                persist=task.get("persist", False),
+            )
+            result["url"] = f"/api/async/{job_id}/results/{result['result_id']}"
+            results.append(result)
+
+        for sequence, result in enumerate(results, start=1):
+            job.results.create(
+                result_id=result["result_id"],
+                sequence=sequence,
+                size=result.get("size") or 0,
+                mime_type=result.get("mime_type"),
+                url=result.get("url"),
+                file_path=result.get("file_path"),
+            )
+
+        job.phase = Job.ExecutionPhase.COMPLETED
+        job.end_time = timezone.now()
+        job.save(update_fields=["phase", "end_time"])
+        return results
+    except Exception:
+        job.phase = Job.ExecutionPhase.ERROR
+        job.end_time = timezone.now()
+        job.save(update_fields=["phase", "end_time"])
+        raise
+
+
 # @celery_app.task()
 # def on_success_cutout(job_id: str, ) -> str:
 #     return str(result)
@@ -131,7 +233,7 @@ def on_success(retval, task_id, args, kwargs) -> str:
 
 @celery_app.task()
 def task_completed() -> str:
-    return f"Completed"
+    return "Completed"
 
 
 @celery_app.task()

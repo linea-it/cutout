@@ -78,6 +78,18 @@ curl -i -G "http://localhost:8000/api/sync" \
   --data-urlencode "band=g"
 ```
 
+```bash
+curl -i -G "http://localhost:80/api/sync" \
+  -H "Authorization: Token 89cce9976177ed2c275b75782290faa915089518" \
+  --data-urlencode "id=des_dr2" \
+  --data-urlencode "pos=CIRCLE 36.30911 -10.18749 2" \
+  --data-urlencode "engine=astrocut" \
+  --data-urlencode "format=png" \
+  --data-urlencode "band=gri"
+-o sync_result_test.png
+```
+
+
 ## 8) Fluxo completo em duas linhas (token + teste)
 
 ```bash
@@ -98,7 +110,6 @@ Para verificar:
 ```bash
 docker compose exec django ls -l /data/results/teste.fits
 ```
-
 
 Coordenadas de exemplo:  cutout/lib/des_cutout.py
 

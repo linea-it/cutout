@@ -1,15 +1,15 @@
 """UWS policy layer for image cutouts."""
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from pathlib import Path
-import re
 from typing import List
 
 from cutout.service.cutout_parameters import CutoutParameters
 from cutout.service.discovery import DesCsvFileLocator
 from cutout.service.policies import DesPublicAccessPolicy
-from cutout.service.tasks import image_cutout
+from cutout.service.tasks import image_cutout, run_async_cutout_job
 from cutout.service.uws.exceptions import MultiValuedParameterError, ParameterError, PermissionDeniedError
 from cutout.service.uws.models import Job, JobParameter
 from cutout.service.uws.policy import UWSPolicy
@@ -63,6 +63,11 @@ class ImageCutoutPolicy(UWSPolicy):
         filename = f"job_{job.job_id}_{survey_id}_{engine}_{mode_token}.{extension}"
 
         return Path("/data/results").joinpath(filename)
+
+    def _build_async_result_path(self, job: Job, task_params: dict, sequence: int) -> Path:
+        base_path = self._build_result_path(job, task_params)
+        filename = f"{base_path.stem}_{sequence}{base_path.suffix or '.fits'}"
+        return Path("/data/results/async").joinpath(filename)
 
     def dispatch(self, job: Job):
         """Dispatch a cutout request to the backend.
@@ -166,6 +171,21 @@ class ImageCutoutPolicy(UWSPolicy):
 
         raise ParameterError("Only one cutout task is supported in sync mode")
 
+    def dispatch_async(self, job: Job, message_id: str):
+        cutout_params = CutoutParameters.from_job_parameters(job.parameters)
+        tasks_params = self.convert_to_list_of_task_params(cutout_params)
+
+        for sequence, task in enumerate(tasks_params, start=1):
+            if not self._survey_access_policy.can_request_cutout(user_id=job.owner, survey_id=task["id"]):
+                raise PermissionDeniedError(f"User has no access to survey {task['id']}")
+            task["path"] = str(self._build_async_result_path(job, task, sequence))
+            task.pop("stencil_obj", None)
+
+        return run_async_cutout_job.apply_async(
+            kwargs={"job_id": job.job_id, "task_params": tasks_params},
+            task_id=message_id,
+        )
+
         # return self._actor.send_with_options(
         #     args=(
         #         job.job_id,
@@ -206,7 +226,7 @@ class ImageCutoutPolicy(UWSPolicy):
         if len(cutout_params.engines) > 1:
             raise MultiValuedParameterError("Only one engine is supported")
 
-    def convert_to_list_of_task_params(self, cutouts) -> List:
+    def convert_to_list_of_task_params(self, cutouts) -> list:
         params = []
 
         for id in cutouts.ids:
@@ -223,9 +243,15 @@ class ImageCutoutPolicy(UWSPolicy):
                                     "band": band,
                                     "format": format,
                                     "engine": engine,
-                                    "color": (cutouts.colors[0].lower() == "true") if getattr(cutouts, 'colors', None) else False,
-                                    "rgb_bands": cutouts.rgb_bands[0] if getattr(cutouts, 'rgb_bands', None) else "gri",
-                                    "persist": (cutouts.persists[0].lower() == "true") if getattr(cutouts, 'persists', None) else False,
+                                    "color": (cutouts.colors[0].lower() == "true")
+                                    if getattr(cutouts, "colors", None)
+                                    else False,
+                                    "rgb_bands": cutouts.rgb_bands[0]
+                                    if getattr(cutouts, "rgb_bands", None)
+                                    else "gri",
+                                    "persist": (cutouts.persists[0].lower() == "true")
+                                    if getattr(cutouts, "persists", None)
+                                    else False,
                                 }
                             )
         return params
