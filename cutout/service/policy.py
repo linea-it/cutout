@@ -1,6 +1,10 @@
 """UWS policy layer for image cutouts."""
+
 from __future__ import annotations
 
+# from dramatiq import Actor, Message
+# from structlog.stdlib import BoundLogger
+import logging
 import re
 from datetime import datetime
 from pathlib import Path
@@ -16,10 +20,6 @@ from cutout.service.uws.policy import UWSPolicy
 
 # from .actors import job_completed, job_failed
 from .exceptions import InvalidCutoutParameterError
-
-# from dramatiq import Actor, Message
-# from structlog.stdlib import BoundLogger
-
 
 __all__ = ["ImageCutoutPolicy"]
 
@@ -172,19 +172,41 @@ class ImageCutoutPolicy(UWSPolicy):
         raise ParameterError("Only one cutout task is supported in sync mode")
 
     def dispatch_async(self, job: Job, message_id: str):
+        logger = logging.getLogger("cutout")
+        logger.info("---------------------------------------")
+
+        job.refresh_from_db()
+        logger.info(f"[dispatch_async] job_id={job.job_id} message_id={message_id}")
         cutout_params = CutoutParameters.from_job_parameters(job.parameters)
+        logger.info(f"[dispatch_async] cutout_params={cutout_params}")
         tasks_params = self.convert_to_list_of_task_params(cutout_params)
+        logger.info(f"[dispatch_async] tasks_params={tasks_params}")
 
         for sequence, task in enumerate(tasks_params, start=1):
+            logger.info(f"[dispatch_async] sequence={sequence} task={task}")
             if not self._survey_access_policy.can_request_cutout(user_id=job.owner, survey_id=task["id"]):
+                logger.error(f"[dispatch_async] PermissionDeniedError for user={job.owner} survey_id={task['id']}")
                 raise PermissionDeniedError(f"User has no access to survey {task['id']}")
             task["path"] = str(self._build_async_result_path(job, task, sequence))
+            logger.info(f"[dispatch_async] task['path'] set to {task['path']}")
             task.pop("stencil_obj", None)
 
-        return run_async_cutout_job.apply_async(
+        logger.info(
+            f"[dispatch_async] Enviando run_async_cutout_job.apply_async kwargs={{'job_id': {job.job_id}, 'task_params': {tasks_params}}}, task_id={message_id}"
+        )
+        result = run_async_cutout_job.apply_async(
             kwargs={"job_id": job.job_id, "task_params": tasks_params},
             task_id=message_id,
         )
+        logger.info(f"[dispatch_async] Celery AsyncResult: {result}")
+        return result
+
+        # # TESTE: Enviar task ping simples para isolar problema de serialização
+        # from cutout.service.tasks import ping
+        # logger.info(f"[dispatch_async] Enviando task ping para teste, task_id={message_id}")
+        # result = ping.apply_async(args=[999], task_id=message_id)
+        # logger.info(f"[dispatch_async] Celery AsyncResult (ping): {result}")
+        # return result
 
         # return self._actor.send_with_options(
         #     args=(
@@ -243,15 +265,19 @@ class ImageCutoutPolicy(UWSPolicy):
                                     "band": band,
                                     "format": format,
                                     "engine": engine,
-                                    "color": (cutouts.colors[0].lower() == "true")
-                                    if getattr(cutouts, "colors", None)
-                                    else False,
-                                    "rgb_bands": cutouts.rgb_bands[0]
-                                    if getattr(cutouts, "rgb_bands", None)
-                                    else "gri",
-                                    "persist": (cutouts.persists[0].lower() == "true")
-                                    if getattr(cutouts, "persists", None)
-                                    else False,
+                                    "color": (
+                                        (cutouts.colors[0].lower() == "true")
+                                        if getattr(cutouts, "colors", None)
+                                        else False
+                                    ),
+                                    "rgb_bands": (
+                                        cutouts.rgb_bands[0] if getattr(cutouts, "rgb_bands", None) else "gri"
+                                    ),
+                                    "persist": (
+                                        (cutouts.persists[0].lower() == "true")
+                                        if getattr(cutouts, "persists", None)
+                                        else False
+                                    ),
                                 }
                             )
         return params

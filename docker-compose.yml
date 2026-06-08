@@ -7,8 +7,6 @@ services:
     build:
       context: .
       dockerfile: ./compose/local/django/Dockerfile
-    image: cutout_local_django
-    container_name: cutout_local_django
     depends_on:
       - postgres
       - redis
@@ -28,8 +26,6 @@ services:
     build:
       context: .
       dockerfile: ./compose/production/postgres/Dockerfile
-    image: cutout_production_postgres
-    container_name: cutout_local_postgres
     volumes:
       - cutout_local_postgres_data:/var/lib/postgresql/data
       - cutout_local_postgres_data_backups:/backups
@@ -37,8 +33,6 @@ services:
       - ./.envs/.local/.postgres
 
   docs:
-    image: cutout_local_docs
-    container_name: cutout_local_docs
     build:
       context: .
       dockerfile: ./compose/local/docs/Dockerfile
@@ -60,34 +54,23 @@ services:
 
   redis:
     image: redis:6
-    container_name: cutout_local_redis
 
   celeryworker:
     <<: *django
-    image: cutout_local_celeryworker
-    container_name: cutout_local_celeryworker
     depends_on:
-      - redis
-      - postgres
-      - mailhog
-    ports: []
+      - django
+    ports: []      
     command: /start-celeryworker
 
   celerybeat:
     <<: *django
-    image: cutout_local_celerybeat
-    container_name: cutout_local_celerybeat
     depends_on:
-      - redis
-      - postgres
-      - mailhog
+      - django
     ports: []
     command: /start-celerybeat
 
   flower:
     <<: *django
-    image: cutout_local_flower
-    container_name: cutout_local_flower
     ports:
       - '5555:5555'
     command: /start-flower

@@ -36,12 +36,12 @@ WORKDIR ${APP_HOME}
 
 # devcontainer dependencies and utils
 RUN apt-get update && apt-get install --no-install-recommends -y \
-    sudo \
-    git \
-    bash-completion \
-    nano \
-    ssh \
-    curl
+  sudo \
+  git \
+  bash-completion \
+  nano \
+  ssh \
+  curl
 
 # Install copilot cli
 RUN curl -fsSL https://gh.io/copilot-install | bash
@@ -72,6 +72,7 @@ COPY --from=python-build-stage /usr/src/app/wheels  /wheels/
 
 # use wheels to install python dependencies
 RUN pip install --no-cache-dir --no-index --find-links=/wheels/ /wheels/* \
+  && pip install --no-cache-dir celery \
   && rm -rf /wheels/
 
 COPY ./compose/production/django/entrypoint /entrypoint

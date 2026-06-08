@@ -1,8 +1,10 @@
+import logging
 from collections.abc import Iterable
 from pathlib import Path
 from typing import List, Optional
 
 from celery.exceptions import TimeoutError as CeleryTimeoutError
+from django.db import transaction
 from django.http import FileResponse, HttpResponse
 from django.urls import reverse
 from django.utils.encoding import escape_uri_path
@@ -215,22 +217,38 @@ class AsyncCutoutView(APIView):
         return Response({"jobs": serializer.data})
 
     def post(self, request, format=None):
+        logger = logging.getLogger("cutout")
+        logger.info(f"[AsyncCutoutView.post] called with data={request.data}")
         params, run_id, requested_phase = _extract_job_request(request.data or request.query_params, is_post=True)
+        logger.info(f"[AsyncCutoutView.post] params={params} run_id={run_id} requested_phase={requested_phase}")
         if not params:
+            logger.error("[AsyncCutoutView.post] No params provided")
             raise ParameterError("At least one cutout parameter is required")
 
         phase = (requested_phase or "RUN").upper()
         if phase != "RUN":
+            logger.error(f"[AsyncCutoutView.post] Invalid phase: {phase}")
             raise ParameterError("Only PHASE=RUN is supported when creating async jobs")
 
-        job_service = JobService()
-        job = job_service.create(user=request.user, params=params, run_id=run_id)
-        job_service.start_async(request.user, job.id)
+        with transaction.atomic():
+            job_service = JobService()
+            job = job_service.create(user=request.user, params=params, run_id=run_id)
+            logger.info(f"[AsyncCutoutView.post] Created job id={job.id}")
+
+            # IMPORTANT: ATOMIC_REQUESTS=True wraps the whole request in a transaction.
+            # Dispatch Celery only after the outer commit, otherwise worker may not
+            # see the just-created row yet.
+            transaction.on_commit(lambda: job_service.start_async(request.user, job.id))
+
+        logger.info(f"[AsyncCutoutView.post] Scheduled job_service.start_async on commit for job id={job.id}")
+
         job.refresh_from_db()
 
         serializer = AsyncJobDetailSerializer(job, context={"request": request})
         response = Response(serializer.data, status=status.HTTP_303_SEE_OTHER)
         response["Location"] = _job_location(request, job)
+        logger.info(f"[AsyncCutoutView.post] Returning response for job id={job.id}")
+
         return response
 
 

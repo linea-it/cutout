@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from typing import List, Optional
 
@@ -60,14 +61,25 @@ class JobService:
 
     def start_async(self, user: User, job_id: int):
         """Start async execution using the fake worker pipeline."""
+        logger = logging.getLogger("cutout")
+
+        logger.info(f"[JobService.start_async] called with user={user} job_id={job_id}")
         sqljob = self.get_for_user(user, job_id)
+
+        logger.info(f"[JobService.start_async] sqljob.phase={sqljob.phase}")
         if sqljob.phase not in (Job.ExecutionPhase.PENDING, Job.ExecutionPhase.HELD):
-            raise InvalidPhaseError("Cannot start job in phase {job.phase}")
+            logger.error(f"[JobService.start_async] Invalid phase: {sqljob.phase}")
+            raise InvalidPhaseError(f"Cannot start job in phase {sqljob.phase}")
 
         job = _convert_job(sqljob)
         message_id = uuid()
+        logger.info(f"[JobService.start_async] mark_queued with message_id={message_id}")
         self.mark_queued(job_id, message_id)
+        logger.info(
+            f"[JobService.start_async] calling policy.dispatch_async with job_id={job.job_id} message_id={message_id}"
+        )
         message = self._policy.dispatch_async(job, message_id=message_id)
+        logger.info(f"[JobService.start_async] policy.dispatch_async returned: {message}")
         return message
 
     def mark_queued(self, job_id: int, message_id: str) -> None:

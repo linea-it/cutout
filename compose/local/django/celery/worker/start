@@ -5,4 +5,9 @@ set -o nounset
 
 
 #exec watchfiles --filter python celery.__main__.main --args '-A config.celery_app worker -l INFO --logfile=/data/log/%n%I.log'
-exec celery -A config.celery_app worker -l INFO --logfile=/data/log/%n%I.log
+
+#exec celery -A config.celery_app worker -Q celery -l INFO --logfile=/data/log/%n%I.log
+
+# exec celery -A config.celery_app worker -Q celery -l DEBUG --concurrency=1
+
+exec watchfiles --filter python "celery -A config.celery_app worker -Q celery -l DEBUG --concurrency=1"

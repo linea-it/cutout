@@ -1,7 +1,9 @@
 import json
+import logging
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any
 
+from django.db import connection
 from django.utils import timezone
 
 from config import celery_app
@@ -158,9 +160,41 @@ def fake_image_cutout(
     }
 
 
-@celery_app.task()
-def run_async_cutout_job(job_id: str, task_params: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    job = Job.objects.get(pk=int(job_id))
+@celery_app.task(
+    bind=True,
+    autoretry_for=(Job.DoesNotExist,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 5},
+)
+def run_async_cutout_job(self, job_id: str, task_params: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    logger = logging.getLogger("cutout")
+    logger.info(
+        "[run_async_cutout_job] task_id=%s retries=%s job_id=%r task_params_count=%s",
+        self.request.id,
+        self.request.retries,
+        job_id,
+        len(task_params or []),
+    )
+
+    job_pk = int(str(job_id).strip())
+    try:
+        job = Job.objects.get(pk=job_pk)
+    except Job.DoesNotExist:
+        db_settings = connection.settings_dict
+        logger.warning(
+            "[run_async_cutout_job] Job not found. Will retry. "
+            "job_id=%r db_engine=%s db_name=%s db_host=%s db_port=%s visible_job_ids=%s",
+            job_id,
+            db_settings.get("ENGINE"),
+            db_settings.get("NAME"),
+            db_settings.get("HOST"),
+            db_settings.get("PORT"),
+            list(Job.objects.order_by("-id").values_list("id", flat=True)[:10]),
+        )
+        raise
+
+    logger.info(f"Run async cutout job {job_id} with params: {task_params}")
     if job.phase == Job.ExecutionPhase.ABORTED:
         return []
 
@@ -169,12 +203,15 @@ def run_async_cutout_job(job_id: str, task_params: list[dict[str, Any]]) -> list
     job.end_time = None
     job.save(update_fields=["phase", "start_time", "end_time"])
 
+    logger.info(f"Changed job {job_id} phase to EXECUTING. Starting cutout tasks...")
+
     results: list[dict[str, Any]] = []
 
     try:
         job.results.all().delete()
 
         for task in task_params:
+            logger.info(f"Starting cutout task for job {job_id} with params: {task}")
             result = fake_image_cutout(
                 job_id=job_id,
                 source_id=task["id"],
@@ -241,3 +278,8 @@ def task_1(x, **kwargs):
     s = f"Task 1: {x}"
     print(s)
     return s
+
+
+@celery_app.task()
+def ping(x):
+    return f"pong:{x}"
