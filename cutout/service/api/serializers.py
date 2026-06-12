@@ -1,7 +1,7 @@
 from django.urls import reverse
 from rest_framework import serializers
 
-from cutout.service.models import Job, JobParameter, JobResult
+from cutout.service.models import Job, JobParameter, JobResult, Task
 
 
 class JobParameterSerializer(serializers.ModelSerializer[JobParameter]):
@@ -61,10 +61,29 @@ class AsyncJobSummarySerializer(serializers.ModelSerializer[Job]):
         return self._build_url("api:async_job_results", obj)
 
 
+class TaskSerializer(serializers.ModelSerializer[Task]):
+    class Meta:
+        model = Task
+        fields = (
+            "id",
+            "sequence",
+            "status",
+            "stencil_type",
+            "survey_id",
+            "band",
+            "output_format",
+            "engine",
+            "start_time",
+            "end_time",
+            "error_message",
+        )
+
+
 class AsyncJobDetailSerializer(AsyncJobSummarySerializer):
     parameters = JobParameterSerializer(many=True, read_only=True)
     results = JobResultSerializer(many=True, read_only=True)
+    tasks = TaskSerializer(many=True, read_only=True)
 
     class Meta:
         model = Job
-        fields = AsyncJobSummarySerializer.Meta.fields + ("parameters", "results")
+        fields = AsyncJobSummarySerializer.Meta.fields + ("parameters", "results", "tasks")

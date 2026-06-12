@@ -35,6 +35,8 @@ class JobService:
         for p in params:
             job.parameters.create(parameter=p.parameter_id, value=p.value, is_post=p.is_post)
 
+        self._policy.create_tasks_for_job(_convert_job(job), params)
+
         return job
 
     def list_for_user(self, user: User):

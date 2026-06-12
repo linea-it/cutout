@@ -2,6 +2,9 @@
 """Smoke test for the sync cutout endpoint using token authentication.
 
 Examples:
+
+    python test_async_endpoint.py --username gverde --password adminadmin --engine astrocut --pos "CIRCLE 36.30911 -10.18749 0.01" --output /tmp/async_astrocut_result.fits
+
     python test_async_endpoint.py \
     --username gverde \
     --password adminadmin \
@@ -67,7 +70,7 @@ def call_async_cutout(
     poll_interval: float = 1.0,
     max_polls: int = 30,
 ) -> tuple[int, str, bytes]:
-    # 1. Cria job async
+    # 1. Cria job async (urllib segue o 303 automaticamente e entrega o job detail)
     url = f"{base_url.rstrip('/')}/api/async"
     payload = json.dumps(
         {
@@ -86,77 +89,65 @@ def call_async_cutout(
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=30) as resp:
-        status = resp.getcode()
-        location = resp.headers.get("Location")
+        job_url = resp.geturl()
         body = resp.read()
 
-    if status == 303 and location:
-        job_url = location
-        # print("Job created, polling at:", job_url)
-    elif status == 200:
-        # Fallback: resposta já é o JSON do job
-        job_data = json.loads(body.decode("utf-8"))
-        job_id = job_data.get("job_id")
-        print(job_id)
-        if not job_id:
-            raise RuntimeError(f"No job_id in response: {body[:1000].decode('utf-8', 'replace')}")
-        # Monta URL do job
-        job_url = f"{base_url.rstrip('/')}/api/async/{job_id}"
-        print(job_url)
-        print(job_data)
-    else:
-        raise RuntimeError(
-            f"Async job creation failed: status={status}, body={body[:1000].decode('utf-8', 'replace')}"
+    job_data = json.loads(body.decode("utf-8"))
+    job_id = job_data.get("job_id")
+    if not job_id:
+        raise RuntimeError(f"No job_id in response: {body[:1000].decode('utf-8', 'replace')}")
+    print(f"job created: id={job_id}  url={job_url}")
+
+    # 2. Poll job status
+    for _ in range(max_polls):
+        job_req = urllib.request.Request(
+            job_url,
+            headers={"Authorization": f"Token {token}"},
+            method="GET",
         )
+        with urllib.request.urlopen(job_req, timeout=20) as job_resp:
+            job_data = json.loads(job_resp.read().decode("utf-8"))
+        phase = job_data.get("phase")
+        print(f"  phase: {phase}")
+        if phase == "COMPLETED":
+            break
+        elif phase == "ERROR":
+            raise RuntimeError(f"Job failed: {job_data}")
+        time.sleep(poll_interval)
+    else:
+        raise TimeoutError("Job did not complete in time")
 
-    # # 2. Poll job status
-    # for _ in range(max_polls):
-    #     job_req = urllib.request.Request(
-    #         job_url,
-    #         headers={"Authorization": f"Token {token}"},
-    #         method="GET",
-    #     )
-    #     with urllib.request.urlopen(job_req, timeout=20) as job_resp:
-    #         job_data = json.loads(job_resp.read().decode("utf-8"))
-    #     phase = job_data.get("phase")
-    #     if phase == "COMPLETED":
-    #         break
-    #     elif phase == "ERROR":
-    #         raise RuntimeError(f"Job failed: {job_data}")
-    #     time.sleep(poll_interval)
-    # else:
-    #     raise TimeoutError("Job did not complete in time")
+    # 3. Get results
+    results_url = job_data.get("results_url")
+    if not results_url:
+        raise RuntimeError("No results_url in job data")
+    results_req = urllib.request.Request(
+        results_url,
+        headers={"Authorization": f"Token {token}"},
+        method="GET",
+    )
+    with urllib.request.urlopen(results_req, timeout=20) as results_resp:
+        results_data = json.loads(results_resp.read().decode("utf-8"))
+    results = results_data.get("results", [])
+    if not results:
+        raise RuntimeError("No results found for job")
+    result = results[0]
+    download_url = result.get("download_url")
+    if not download_url:
+        raise RuntimeError("No download_url in result")
+    print(f"downloading from: {download_url}")
 
-    # # 3. Get results
-    # results_url = job_data.get("results_url")
-    # if not results_url:
-    #     raise RuntimeError("No results_url in job data")
-    # results_req = urllib.request.Request(
-    #     results_url,
-    #     headers={"Authorization": f"Token {token}"},
-    #     method="GET",
-    # )
-    # with urllib.request.urlopen(results_req, timeout=20) as results_resp:
-    #     results_data = json.loads(results_resp.read().decode("utf-8"))
-    # results = results_data.get("results", [])
-    # if not results:
-    #     raise RuntimeError("No results found for job")
-    # result = results[0]
-    # download_url = result.get("download_url")
-    # if not download_url:
-    #     raise RuntimeError("No download_url in result")
-
-    # # 4. Download result
-    # download_req = urllib.request.Request(
-    #     download_url,
-    #     headers={"Authorization": f"Token {token}"},
-    #     method="GET",
-    # )
-    # with urllib.request.urlopen(download_req, timeout=60) as dl_resp:
-    #     status = dl_resp.getcode()
-    #     content_type = dl_resp.headers.get("Content-Type", "")
-    #     body = dl_resp.read()
-    # return status, content_type, body
+    # 4. Download result
+    download_req = urllib.request.Request(
+        download_url,
+        headers={"Authorization": f"Token {token}"},
+        method="GET",
+    )
+    with urllib.request.urlopen(download_req, timeout=60) as dl_resp:
+        dl_status = dl_resp.getcode()
+        content_type = dl_resp.headers.get("Content-Type", "")
+        body = dl_resp.read()
+    return dl_status, content_type, body
 
 
 def main() -> int:

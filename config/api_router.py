@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.db import transaction
 from django.urls import path
 from rest_framework.routers import DefaultRouter, SimpleRouter
 
@@ -28,7 +29,7 @@ urlpatterns = router.urls
 urlpatterns += [
     path("cutout", CutoutView.as_view(), name="cutout"),
     path("sync", SyncCutoutView.as_view(), name="sync_cutout"),
-    path("async", AsyncCutoutView.as_view(), name="async_cutout"),
+    path("async", transaction.non_atomic_requests(AsyncCutoutView.as_view()), name="async_cutout"),
     path("async/<int:job_id>", AsyncJobDetailView.as_view(), name="async_job_detail"),
     path("async/<int:job_id>/phase", AsyncJobPhaseView.as_view(), name="async_job_phase"),
     path("async/<int:job_id>/parameters", AsyncJobParametersView.as_view(), name="async_job_parameters"),

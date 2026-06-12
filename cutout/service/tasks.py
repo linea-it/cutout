@@ -3,13 +3,12 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from django.db import connection
 from django.utils import timezone
 
 from config import celery_app
 from cutout.lib.des_cutout import DesCutout
 from cutout.service.cutout_engine import create_cutout_engine
-from cutout.service.models import Job
+from cutout.service.models import Job, Task
 
 
 def _validate_input_files(files: list[str] | dict[str, list[str]] | None) -> None:
@@ -162,91 +161,112 @@ def fake_image_cutout(
 
 @celery_app.task(
     bind=True,
-    autoretry_for=(Job.DoesNotExist,),
+    autoretry_for=(Job.DoesNotExist, Task.DoesNotExist),
     retry_backoff=True,
     retry_jitter=True,
     retry_kwargs={"max_retries": 5},
 )
-def run_async_cutout_job(self, job_id: str, task_params: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def run_cutout_for_pos(self, job_id: str, task_id: str) -> dict[str, Any]:
+    """Execute a single cutout unit. Reads all parameters from the Task row in DB."""
     logger = logging.getLogger("cutout")
+    job_pk = int(str(job_id).strip())
+    task_pk = int(str(task_id).strip())
+
     logger.info(
-        "[run_async_cutout_job] task_id=%s retries=%s job_id=%r task_params_count=%s",
+        "[run_cutout_for_pos] celery_task_id=%s retries=%s job_id=%r task_id=%r",
         self.request.id,
         self.request.retries,
         job_id,
-        len(task_params or []),
+        task_id,
     )
 
-    job_pk = int(str(job_id).strip())
+    job = Job.objects.get(pk=job_pk)
+    task = Task.objects.get(pk=task_pk)
+
+    if job.phase == Job.ExecutionPhase.ABORTED:
+        logger.info("[run_cutout_for_pos] Job %r is ABORTED, skipping", job_id)
+        return {}
+
+    # First task to run transitions QUEUED → EXECUTING (idempotent under concurrency)
+    Job.objects.filter(pk=job_pk, phase=Job.ExecutionPhase.QUEUED).update(
+        phase=Job.ExecutionPhase.EXECUTING,
+        start_time=timezone.now(),
+    )
+
+    # PENDING → EXECUTING (idempotent — only first call wins if multi-band)
+    Task.objects.filter(pk=task_pk, status=Task.Status.PENDING).update(
+        status=Task.Status.EXECUTING,
+        start_time=timezone.now(),
+    )
+
     try:
-        job = Job.objects.get(pk=job_pk)
-    except Job.DoesNotExist:
-        db_settings = connection.settings_dict
-        logger.warning(
-            "[run_async_cutout_job] Job not found. Will retry. "
-            "job_id=%r db_engine=%s db_name=%s db_host=%s db_port=%s visible_job_ids=%s",
-            job_id,
-            db_settings.get("ENGINE"),
-            db_settings.get("NAME"),
-            db_settings.get("HOST"),
-            db_settings.get("PORT"),
-            list(Job.objects.order_by("-id").values_list("id", flat=True)[:10]),
+        result = fake_image_cutout(
+            job_id=job_id,
+            source_id=task.survey_id,
+            stencil=task.stencil,
+            engine=task.engine,
+            band=task.band,
+            format=task.output_format,
+            path=task.output_path,
+            color=task.color,
+            rgb_bands=task.rgb_bands,
+            persist=task.persist,
+        )
+
+        job.results.create(
+            result_id=result["result_id"],
+            sequence=task.sequence,
+            size=result.get("size") or 0,
+            mime_type=result.get("mime_type"),
+            url=f"/api/async/{job_id}/results/{result['result_id']}",
+            file_path=result.get("file_path"),
+        )
+
+        Task.objects.filter(pk=task_pk).update(
+            status=Task.Status.COMPLETED,
+            end_time=timezone.now(),
+        )
+
+        logger.info("[run_cutout_for_pos] completed task_id=%r result_id=%s", task_id, result.get("result_id"))
+        return {"task_id": task_pk, "result_id": result["result_id"]}
+
+    except Exception as exc:
+        Job.objects.filter(pk=job_pk).update(
+            phase=Job.ExecutionPhase.ERROR,
+            end_time=timezone.now(),
+        )
+        Task.objects.filter(pk=task_pk).update(
+            status=Task.Status.ERROR,
+            end_time=timezone.now(),
+            error_message=str(exc),
         )
         raise
 
-    logger.info(f"Run async cutout job {job_id} with params: {task_params}")
-    if job.phase == Job.ExecutionPhase.ABORTED:
-        return []
 
-    job.phase = Job.ExecutionPhase.EXECUTING
-    job.start_time = timezone.now()
-    job.end_time = None
-    job.save(update_fields=["phase", "start_time", "end_time"])
+@celery_app.task
+def finalize_job(_results: list[dict[str, Any]], job_id: str) -> None:
+    """Chord callback: runs when all run_cutout_for_pos tasks for a job complete.
 
-    logger.info(f"Changed job {job_id} phase to EXECUTING. Starting cutout tasks...")
-
-    results: list[dict[str, Any]] = []
+    JobResults and Task statuses are already set by each individual worker task.
+    This callback only transitions the Job to COMPLETED.
+    """
+    logger = logging.getLogger("cutout")
+    job_pk = int(str(job_id).strip())
 
     try:
-        job.results.all().delete()
+        job = Job.objects.get(pk=job_pk)
+    except Job.DoesNotExist:
+        logger.error("[finalize_job] Job %r not found", job_id)
+        return
 
-        for task in task_params:
-            logger.info(f"Starting cutout task for job {job_id} with params: {task}")
-            result = fake_image_cutout(
-                job_id=job_id,
-                source_id=task["id"],
-                stencil=task["stencil"],
-                engine=task["engine"],
-                band=task["band"],
-                format=task["format"],
-                path=task["path"],
-                files=task.get("files"),
-                color=task.get("color", False),
-                rgb_bands=task.get("rgb_bands"),
-                persist=task.get("persist", False),
-            )
-            result["url"] = f"/api/async/{job_id}/results/{result['result_id']}"
-            results.append(result)
+    if job.phase in (Job.ExecutionPhase.ABORTED, Job.ExecutionPhase.ERROR):
+        logger.info("[finalize_job] job_id=%r phase=%s — skipping COMPLETED transition", job_id, job.phase)
+        return
 
-        for sequence, result in enumerate(results, start=1):
-            job.results.create(
-                result_id=result["result_id"],
-                sequence=sequence,
-                size=result.get("size") or 0,
-                mime_type=result.get("mime_type"),
-                url=result.get("url"),
-                file_path=result.get("file_path"),
-            )
-
-        job.phase = Job.ExecutionPhase.COMPLETED
-        job.end_time = timezone.now()
-        job.save(update_fields=["phase", "end_time"])
-        return results
-    except Exception:
-        job.phase = Job.ExecutionPhase.ERROR
-        job.end_time = timezone.now()
-        job.save(update_fields=["phase", "end_time"])
-        raise
+    job.phase = Job.ExecutionPhase.COMPLETED
+    job.end_time = timezone.now()
+    job.save(update_fields=["phase", "end_time"])
+    logger.info("[finalize_job] job_id=%r marked COMPLETED", job_id)
 
 
 # @celery_app.task()

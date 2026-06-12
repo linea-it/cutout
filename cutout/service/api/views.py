@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import List, Optional
 
 from celery.exceptions import TimeoutError as CeleryTimeoutError
-from django.db import transaction
 from django.http import FileResponse, HttpResponse
 from django.urls import reverse
 from django.utils.encoding import escape_uri_path
@@ -230,17 +229,11 @@ class AsyncCutoutView(APIView):
             logger.error(f"[AsyncCutoutView.post] Invalid phase: {phase}")
             raise ParameterError("Only PHASE=RUN is supported when creating async jobs")
 
-        with transaction.atomic():
-            job_service = JobService()
-            job = job_service.create(user=request.user, params=params, run_id=run_id)
-            logger.info(f"[AsyncCutoutView.post] Created job id={job.id}")
-
-            # IMPORTANT: ATOMIC_REQUESTS=True wraps the whole request in a transaction.
-            # Dispatch Celery only after the outer commit, otherwise worker may not
-            # see the just-created row yet.
-            transaction.on_commit(lambda: job_service.start_async(request.user, job.id))
-
-        logger.info(f"[AsyncCutoutView.post] Scheduled job_service.start_async on commit for job id={job.id}")
+        job_service = JobService()
+        job = job_service.create(user=request.user, params=params, run_id=run_id)
+        logger.info(f"[AsyncCutoutView.post] Created job id={job.id}")
+        job_service.start_async(request.user, job.id)
+        logger.info(f"[AsyncCutoutView.post] Dispatched start_async for job id={job.id}")
 
         job.refresh_from_db()
 

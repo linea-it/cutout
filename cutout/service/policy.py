@@ -10,10 +10,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
+from celery import chord as celery_chord
+
 from cutout.service.cutout_parameters import CutoutParameters
 from cutout.service.discovery import DesCsvFileLocator
+from cutout.service.models import Task as SQLTask
 from cutout.service.policies import DesPublicAccessPolicy
-from cutout.service.tasks import image_cutout, run_async_cutout_job
+from cutout.service.tasks import finalize_job, image_cutout, run_cutout_for_pos
 from cutout.service.uws.exceptions import MultiValuedParameterError, ParameterError, PermissionDeniedError
 from cutout.service.uws.models import Job, JobParameter
 from cutout.service.uws.policy import UWSPolicy
@@ -171,62 +174,48 @@ class ImageCutoutPolicy(UWSPolicy):
 
         raise ParameterError("Only one cutout task is supported in sync mode")
 
+    def create_tasks_for_job(self, job: Job, params: list[JobParameter]) -> list:
+        """Create one Task row per cutout execution unit (stencil × band × format × engine)."""
+        cutout_params = CutoutParameters.from_job_parameters(params)
+        task_dicts = self.convert_to_list_of_task_params(cutout_params)
+        tasks = []
+        for sequence, t in enumerate(task_dicts, start=1):
+            if not self._survey_access_policy.can_request_cutout(user_id=job.owner, survey_id=t["id"]):
+                raise PermissionDeniedError(f"User has no access to survey {t['id']}")
+            output_path = str(self._build_async_result_path(job, t, sequence))
+            stencil_obj = t["stencil_obj"]
+            stencil_dict = stencil_obj.to_dict()
+            task = SQLTask.objects.create(
+                job_id=int(job.job_id),
+                sequence=sequence,
+                survey_id=t["id"],
+                stencil=stencil_dict,
+                stencil_type=stencil_dict.get("type", "unknown"),
+                band=t["band"],
+                output_format=t["format"],
+                engine=t["engine"],
+                color=t.get("color", False),
+                rgb_bands=t.get("rgb_bands", "gri"),
+                persist=t.get("persist", False),
+                output_path=output_path,
+            )
+            tasks.append(task)
+        return tasks
+
     def dispatch_async(self, job: Job, message_id: str):
         logger = logging.getLogger("cutout")
-        logger.info("---------------------------------------")
+        logger.info("[dispatch_async] job_id=%s message_id=%s", job.job_id, message_id)
 
-        job.refresh_from_db()
-        logger.info(f"[dispatch_async] job_id={job.job_id} message_id={message_id}")
-        cutout_params = CutoutParameters.from_job_parameters(job.parameters)
-        logger.info(f"[dispatch_async] cutout_params={cutout_params}")
-        tasks_params = self.convert_to_list_of_task_params(cutout_params)
-        logger.info(f"[dispatch_async] tasks_params={tasks_params}")
-
-        for sequence, task in enumerate(tasks_params, start=1):
-            logger.info(f"[dispatch_async] sequence={sequence} task={task}")
-            if not self._survey_access_policy.can_request_cutout(user_id=job.owner, survey_id=task["id"]):
-                logger.error(f"[dispatch_async] PermissionDeniedError for user={job.owner} survey_id={task['id']}")
-                raise PermissionDeniedError(f"User has no access to survey {task['id']}")
-            task["path"] = str(self._build_async_result_path(job, task, sequence))
-            logger.info(f"[dispatch_async] task['path'] set to {task['path']}")
-            task.pop("stencil_obj", None)
-
-        logger.info(
-            f"[dispatch_async] Enviando run_async_cutout_job.apply_async kwargs={{'job_id': {job.job_id}, 'task_params': {tasks_params}}}, task_id={message_id}"
+        db_tasks = list(SQLTask.objects.filter(job_id=int(job.job_id)).order_by("sequence"))
+        cutout_sigs = [
+            run_cutout_for_pos.s(job_id=job.job_id, task_id=str(task.id))
+            for task in db_tasks
+        ]
+        result = celery_chord(cutout_sigs)(
+            finalize_job.s(job_id=job.job_id).set(task_id=message_id)
         )
-        result = run_async_cutout_job.apply_async(
-            kwargs={"job_id": job.job_id, "task_params": tasks_params},
-            task_id=message_id,
-        )
-        logger.info(f"[dispatch_async] Celery AsyncResult: {result}")
+        logger.info("[dispatch_async] chord dispatched: %d task(s), callback_id=%s", len(cutout_sigs), message_id)
         return result
-
-        # # TESTE: Enviar task ping simples para isolar problema de serialização
-        # from cutout.service.tasks import ping
-        # logger.info(f"[dispatch_async] Enviando task ping para teste, task_id={message_id}")
-        # result = ping.apply_async(args=[999], task_id=message_id)
-        # logger.info(f"[dispatch_async] Celery AsyncResult (ping): {result}")
-        # return result
-
-        # return self._actor.send_with_options(
-        #     args=(
-        #         job.job_id,
-        #         cutout_params.ids,
-        #         [s.to_dict() for s in cutout_params.stencils],
-        #     ),
-        #     time_limit=job.execution_duration * 1000,
-        #     on_success=job_completed,
-        #     on_failure=job_failed,
-        # )
-
-        # https://github.com/celery/celery/issues/1813
-        # Task ID before execute
-        # >>> from celery import uuid
-        # >>> task_id = uuid()
-        # >>> task_id
-        # 'c7f388e9-d688-4f1d-be22-fb043b93c725'
-        # >>> add.apply_async((2, 2), task_id=task_id)
-        # <AsyncResult: c7f388e9-d688-4f1d-be22-fb043b93c725>
 
     def validate_destruction(self, destruction: datetime, job: Job) -> datetime:
         return job.destruction_time
