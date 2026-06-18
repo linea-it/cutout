@@ -6,8 +6,8 @@ from typing import Any
 from uuid import uuid4
 
 from astrocut import fits_cut
-from astropy import units as u
-from astropy.coordinates import SkyCoord
+
+from cutout.service.stencils import Stencil
 
 from .base import CutoutEngine
 
@@ -37,34 +37,10 @@ class AstrocutEngine(CutoutEngine):
         output_path.parent.mkdir(parents=True, exist_ok=True)
         temp_tag = uuid4().hex[:8]
 
+        stencil_obj = Stencil.from_dict(stencil)
+        coordinate = stencil_obj.get_center()
+        cutout_size = stencil_obj.get_cutout_size()
         stencil_type = stencil.get("type", "circle")
-        if stencil_type == "circle":
-            center = stencil["center"]
-            coordinate = SkyCoord(ra=center["ra"] * u.deg, dec=center["dec"] * u.deg, frame="icrs")
-            cutout_size = 2 * stencil["radius"] * u.arcmin
-        elif stencil_type == "range":
-            ra_min, ra_max = stencil["ra"]
-            dec_min, dec_max = stencil["dec"]
-            coordinate = SkyCoord(
-                ra=(ra_min + ra_max) / 2 * u.deg,
-                dec=(dec_min + dec_max) / 2 * u.deg,
-                frame="icrs",
-            )
-            cutout_size = [(ra_max - ra_min) * u.deg, (dec_max - dec_min) * u.deg]
-        elif stencil_type == "polygon":
-            vertices = stencil["vertices"]
-            ras = [v[0] for v in vertices]
-            decs = [v[1] for v in vertices]
-            ra_min, ra_max = min(ras), max(ras)
-            dec_min, dec_max = min(decs), max(decs)
-            coordinate = SkyCoord(
-                ra=(ra_min + ra_max) / 2 * u.deg,
-                dec=(dec_min + dec_max) / 2 * u.deg,
-                frame="icrs",
-            )
-            cutout_size = [(ra_max - ra_min) * u.deg, (dec_max - dec_min) * u.deg]
-        else:
-            raise ValueError(f"Unknown stencil type: {stencil_type}")
 
         # Debug info: log input files and parameters
         print(f"[astrocut] run_cutout: source_id={source_id} band={band} output_format={output_format} color={color} rgb_bands={rgb_bands} persist={persist}")

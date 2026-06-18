@@ -23,6 +23,32 @@ class Stencil(ABC):
     def to_dict(self) -> dict[str, Any]:
         """Convert the stencil to a JSON-serializable form for queuing."""
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Stencil:
+        """Reconstruct a stencil from its ``to_dict`` representation."""
+        stencil_type = data.get("type", "circle")
+        if stencil_type == "circle":
+            return CircleStencil(
+                center=SkyCoord(data["center"]["ra"] * u.deg, data["center"]["dec"] * u.deg, frame="icrs"),
+                radius=Angle(data["radius"] * u.deg),
+            )
+        elif stencil_type == "polygon":
+            ras = [v[0] for v in data["vertices"]]
+            decs = [v[1] for v in data["vertices"]]
+            return PolygonStencil(vertices=SkyCoord(ras * u.degree, decs * u.degree, frame="icrs"))
+        elif stencil_type == "range":
+            return RangeStencil(ra=data["ra"], dec=data["dec"])
+        else:
+            raise ValueError(f"Unknown stencil type: {stencil_type}")
+
+    @abstractmethod
+    def get_center(self) -> SkyCoord:
+        """Return the central coordinate for the cutout."""
+
+    @abstractmethod
+    def get_cutout_size(self):
+        """Return the cutout size with units preserved."""
+
 
 @dataclass
 class CircleStencil(Stencil):
@@ -48,6 +74,12 @@ class CircleStencil(Stencil):
             },
             "radius": self.radius.degree,
         }
+
+    def get_center(self) -> SkyCoord:
+        return self.center
+
+    def get_cutout_size(self):
+        return 2 * self.radius
 
 
 @dataclass
@@ -83,6 +115,20 @@ class PolygonStencil(Stencil):
             "vertices": [(v.ra.degree, v.dec.degree) for v in self.vertices],
         }
 
+    def get_center(self) -> SkyCoord:
+        ras = self.vertices.ra.degree
+        decs = self.vertices.dec.degree
+        return SkyCoord(
+            ra=(ras.min() + ras.max()) / 2 * u.deg,
+            dec=(decs.min() + decs.max()) / 2 * u.deg,
+            frame="icrs",
+        )
+
+    def get_cutout_size(self):
+        ras = self.vertices.ra.degree
+        decs = self.vertices.dec.degree
+        return [(ras.max() - ras.min()) * u.deg, (decs.max() - decs.min()) * u.deg]
+
 
 @dataclass
 class RangeStencil(Stencil):
@@ -105,6 +151,16 @@ class RangeStencil(Stencil):
             "ra": self.ra,
             "dec": self.dec,
         }
+
+    def get_center(self) -> SkyCoord:
+        return SkyCoord(
+            ra=(self.ra[0] + self.ra[1]) / 2 * u.deg,
+            dec=(self.dec[0] + self.dec[1]) / 2 * u.deg,
+            frame="icrs",
+        )
+
+    def get_cutout_size(self):
+        return [(self.ra[1] - self.ra[0]) * u.deg, (self.dec[1] - self.dec[0]) * u.deg]
 
 
 def parse_stencil(stencil_type: str, params: str) -> Stencil:
