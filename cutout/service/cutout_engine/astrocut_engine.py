@@ -33,20 +33,42 @@ class AstrocutEngine(CutoutEngine):
         if not input_files:
             raise ValueError("Astrocut engine requires at least one input file")
 
-        if stencil.get("type") != "circle":
-            raise ValueError("Astrocut engine currently supports only circle stencil")
-
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         temp_tag = uuid4().hex[:8]
 
-        center = stencil["center"]
-        radius_arcmin = stencil["radius"]
-        coordinate = SkyCoord(ra=center["ra"] * u.deg, dec=center["dec"] * u.deg, frame="icrs")
+        stencil_type = stencil.get("type", "circle")
+        if stencil_type == "circle":
+            center = stencil["center"]
+            coordinate = SkyCoord(ra=center["ra"] * u.deg, dec=center["dec"] * u.deg, frame="icrs")
+            cutout_size = 2 * stencil["radius"] * u.arcmin
+        elif stencil_type == "range":
+            ra_min, ra_max = stencil["ra"]
+            dec_min, dec_max = stencil["dec"]
+            coordinate = SkyCoord(
+                ra=(ra_min + ra_max) / 2 * u.deg,
+                dec=(dec_min + dec_max) / 2 * u.deg,
+                frame="icrs",
+            )
+            cutout_size = [(ra_max - ra_min) * u.deg, (dec_max - dec_min) * u.deg]
+        elif stencil_type == "polygon":
+            vertices = stencil["vertices"]
+            ras = [v[0] for v in vertices]
+            decs = [v[1] for v in vertices]
+            ra_min, ra_max = min(ras), max(ras)
+            dec_min, dec_max = min(decs), max(decs)
+            coordinate = SkyCoord(
+                ra=(ra_min + ra_max) / 2 * u.deg,
+                dec=(dec_min + dec_max) / 2 * u.deg,
+                frame="icrs",
+            )
+            cutout_size = [(ra_max - ra_min) * u.deg, (dec_max - dec_min) * u.deg]
+        else:
+            raise ValueError(f"Unknown stencil type: {stencil_type}")
 
         # Debug info: log input files and parameters
         print(f"[astrocut] run_cutout: source_id={source_id} band={band} output_format={output_format} color={color} rgb_bands={rgb_bands} persist={persist}")
-        print(f"[astrocut] run_cutout: stencil center={center} radius={radius_arcmin}")
+        print(f"[astrocut] run_cutout: stencil type={stencil_type} coordinate={coordinate} cutout_size={cutout_size}")
         print(f"[astrocut] run_cutout: input_files={input_files}")
 
         # For FITS, reuse fits_cut
@@ -54,7 +76,7 @@ class AstrocutEngine(CutoutEngine):
             result = fits_cut(
                 input_files=input_files,
                 coordinates=coordinate,
-                cutout_size=radius_arcmin * u.arcmin,
+                cutout_size=cutout_size,
                 single_outfile=True,
                 cutout_prefix=output_path.stem,
                 output_dir=output_path.parent,
@@ -98,7 +120,7 @@ class AstrocutEngine(CutoutEngine):
                 res = fits_cut(
                     input_files=files_b,
                     coordinates=coordinate,
-                    cutout_size=radius_arcmin * u.arcmin,
+                    cutout_size=cutout_size,
                     single_outfile=True,
                     cutout_prefix=temp_fits.stem,
                     output_dir=temp_fits.parent,
@@ -154,7 +176,7 @@ class AstrocutEngine(CutoutEngine):
         result = fits_cut(
             input_files=input_files if isinstance(input_files, list) else ([] if input_files is None else []),
             coordinates=coordinate,
-            cutout_size=radius_arcmin * u.arcmin,
+            cutout_size=cutout_size,
             single_outfile=True,
             cutout_prefix=temp_fits.stem,
             output_dir=temp_fits.parent,
