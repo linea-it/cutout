@@ -34,6 +34,23 @@ class JobResult(models.Model):
         max_length=64,
     )
 
+    url = models.CharField(
+        verbose_name="URL",
+        help_text="Relative or absolute URL where the result can be retrieved.",
+        max_length=255,
+        null=True,
+        blank=True,
+        default=None,
+    )
+
+    file_path = models.TextField(
+        verbose_name="File Path",
+        help_text="Filesystem path for the persisted result artifact.",
+        null=True,
+        blank=True,
+        default=None,
+    )
+
     class Meta:
         indexes = [
             models.Index(name="by_sequence", fields=["job", "sequence"]),

@@ -1,69 +1,76 @@
+import logging
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
-from django.contrib.auth import get_user_model
-from django.http import FileResponse
+from celery.exceptions import TimeoutError as CeleryTimeoutError
+from django.http import FileResponse, HttpResponse
+from django.urls import reverse
 from django.utils.encoding import escape_uri_path
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import status
-from rest_framework.exceptions import ParseError
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.viewsets import ModelViewSet
 
 from cutout.service.models import Job
-from cutout.service.policy import ImageCutoutPolicy
-from cutout.service.tasks import des_cutout_circle
+from cutout.service.uws.exceptions import ParameterError, ServiceUnavailableError
 from cutout.service.uws.models import JobParameter
 from cutout.service.uws.service import JobService
+from cutout.users.models import User
 
-from .serializers import JobRequestSerializer
-
-User = get_user_model()
-
-
-class JobRequestViewSet(ModelViewSet):
-    serializer_class = JobRequestSerializer
-    queryset = Job.objects.all()
-
-    def create(self, request):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        instance = self.perform_create(serializer)
-
-        data = self.get_serializer(instance=instance).data
-        return Response(data, status=status.HTTP_201_CREATED)
-
-    def perform_create(self, serializer):
-        """ """
-        owner = self.request.user
-        return serializer.save(owner=owner)
+from .serializers import (
+    AsyncJobDetailSerializer,
+    AsyncJobSummarySerializer,
+    JobParameterSerializer,
+    JobResultSerializer,
+)
 
 
-from rest_framework.response import Response
+def _request_items(data) -> Iterable[tuple[str, list[str]]]:
+    if hasattr(data, "lists"):
+        return [(key, [str(value) for value in values]) for key, values in data.lists()]
+
+    normalized = []
+    for key, value in data.items():
+        if isinstance(value, list):
+            normalized.append((key, [str(item) for item in value]))
+        else:
+            normalized.append((key, [str(value)]))
+    return normalized
+
+
+def _extract_job_request(data, *, is_post: bool) -> tuple[list[JobParameter], str | None, str | None]:
+    params: list[JobParameter] = []
+    run_id: str | None = None
+    requested_phase: str | None = None
+
+    for key, values in _request_items(data):
+        lower_key = key.lower()
+        for value in values:
+            if lower_key == "runid":
+                run_id = value
+            elif lower_key == "phase":
+                requested_phase = value
+            elif value != "":
+                params.append(JobParameter(parameter_id=lower_key, value=value, is_post=is_post))
+
+    return params, run_id, requested_phase
+
+
+def _job_location(request, job: Job) -> str:
+    path = reverse("api:async_job_detail", kwargs={"job_id": job.id})
+    return request.build_absolute_uri(path)
 
 
 class CutoutView(APIView):
-    """
-    # Home da API deve retornar os metadados do serviço.
-    """
-
-    # authentication_classes = [authentication.TokenAuthentication]
-    # permission_classes = [permissions.IsAdminUser]
-
     def get(self, request, format=None):
-        """
-        Return a list of all users.
-        """
         return Response({"message": "Hello, world!"})
 
 
-# https://github.com/lsst-sqre/vo-cutouts/blob/main/src/vocutouts/handlers/external.py#L204
 cutout_schema = extend_schema(
     parameters=[
         OpenApiParameter(
             name="id",
-            # title="Source ID",
             description=("Identifiers of images from which to make a cutout. This parameter is mandatory."),
             type=str,
             default="des_dr2",
@@ -75,8 +82,6 @@ cutout_schema = extend_schema(
             allow_blank=True,
             many=False,
             default="CIRCLE 36.30911 -10.18749 2",
-            # default="RANGE 12 14 34 36",
-            # default="POLYGON 12 34 14 34 14 36 12 36",
             description=(
                 "Positions to cut out. Supported parameters are RANGE followed"
                 " by min and max ra and min and max dec; CIRCLE followed by"
@@ -86,33 +91,6 @@ cutout_schema = extend_schema(
                 " numbers expressed as strings."
             ),
         ),
-        # OpenApiParameter(
-        #     name="circle",
-        #     type=str,
-        #     allow_blank=True,
-        #     many=True,
-        #     # title="Cutout positions",
-        #     description=(
-        #         "Circles to cut out. The value must be the ra and dec of the"
-        #         " center of the circle and then the radius, as"
-        #         " double-precision floating point numbers expressed as"
-        #         " strings and separated by spaces."
-        #     ),
-        # ),
-        # OpenApiParameter(
-        #     name="polygon",
-        #     type=str,
-        #     allow_blank=True,
-        #     many=True,
-        #     # title="Cutout positions",
-        #     description=(
-        #         "Polygons to cut out. The value must be ra/dec pairs for each"
-        #         " vertex, ordered so that the polygon winding direction is"
-        #         " counter-clockwise (when viewed from the origin towards the"
-        #         " sky). These parameters are double-precision floating point"
-        #         " numbers expressed as strings and separated by spaces."
-        #     ),
-        # ),
         OpenApiParameter(
             name="runid",
             type=str,
@@ -125,6 +103,14 @@ cutout_schema = extend_schema(
             ),
         ),
         OpenApiParameter(
+            name="phase",
+            type=str,
+            allow_blank=True,
+            many=False,
+            default="RUN",
+            description=("For async requests, defaults to RUN and dispatches the job immediately."),
+        ),
+        OpenApiParameter(
             name="format",
             type=str,
             allow_blank=False,
@@ -133,260 +119,194 @@ cutout_schema = extend_schema(
             description=("fits or png"),
         ),
         OpenApiParameter(
+            name="color",
+            type=bool,
+            allow_blank=True,
+            many=False,
+            default=False,
+            description=("When true and format=png, produce an RGB PNG composed from `rgb_bands`."),
+        ),
+        OpenApiParameter(
+            name="rgb_bands",
+            type=str,
+            allow_blank=True,
+            many=False,
+            default="gri",
+            description=("Three-letter band composition for RGB (e.g. 'gri' or 'g,r,i' or 'g r i')."),
+        ),
+        OpenApiParameter(
+            name="persist",
+            type=bool,
+            allow_blank=True,
+            many=False,
+            default=False,
+            description=("When true, persist the generated file in /data/results and return it."),
+        ),
+        OpenApiParameter(
             name="band",
             type=str,
             allow_blank=False,
             many=False,
             description=("One of grizY"),
-        )
-        # TODO: Band estudar a implementacao do parametro BAND. IVOA/SODA/WD-SODA 3.2.2
+        ),
+        OpenApiParameter(
+            name="engine",
+            type=str,
+            allow_blank=False,
+            many=False,
+            default="astrocut",
+            description=("Cutout backend engine. Supported values: astrocut, legacy"),
+        ),
     ],
 )
 
 
 @extend_schema_view(get=cutout_schema, post=cutout_schema)
 class SyncCutoutView(APIView):
-    """Synchronously request a cutout. This will wait for the cutout to be
-    completed and return the resulting image as a FITS file.
-    (The image will be returned via a redirect to a URL at the underlying object store.)
-    """
+    sync_timeout_seconds = 25
 
-    # authentication_classes = [authentication.TokenAuthentication]
-    # permission_classes = [permissions.IsAdminUser]
+    def _mimetype_for_format(self, output_format: str) -> str:
+        if output_format.lower() == "png":
+            return "image/x-png"
+        return "application/fits"
 
-    def sync_cutout(self, user: User, params: List[JobParameter], run_id: Optional[str]):
-        # policy = ImageCutoutPolicy()
+    def sync_cutout(self, user: User, params: list[JobParameter], run_id: str | None):
         job_service = JobService()
         job = job_service.create(user=user, params=params, run_id=run_id)
-        job_service.start(user, job_id=job.id)
+        async_result = job_service.start(user, job_id=job.id)
 
-        # from cutout.service.cutout_parameters import CutoutParameters
-        # from cutout.service.models import Job
-        # from cutout.service.uws.models import _convert_job
+        output_format = "fits"
+        for p in params:
+            if p.parameter_id == "format":
+                output_format = p.value
+                break
 
-        # sqljob = Job.objects.get(pk=3)
+        try:
+            job_service.mark_executing(job.id)
+            result_path = async_result.get(timeout=self.sync_timeout_seconds)
+        except CeleryTimeoutError as exc:
+            job_service.mark_error(job.id)
+            raise ServiceUnavailableError("Sync cutout timed out") from exc
+        except Exception as exc:
+            job_service.mark_error(job.id)
+            raise ParameterError(str(exc)) from exc
 
-        # job = _convert_job(sqljob)
-        # print(job)
+        result_file = Path(result_path)
+        if not result_file.exists():
+            job_service.mark_error(job.id)
+            raise ServiceUnavailableError("Result file unavailable")
 
-        # cutout_params = CutoutParameters.from_job_parameters(job.parameters)
-        # print(cutout_params)
-
-        # TODO: Criar a classe ImageCutoutPolicy para ser usada no Job Service.
-        # Criar o metodo dispath
-        # https://github.com/lsst-sqre/vo-cutouts/blob/56ca1ba7a0bb3a85dfb873c0f9153c70e52adbce/src/vocutouts/policy.py#L12
-
-        #     format = params.get("format", "fits")
-
-        #     if params["id"] == "des_dr2":
-        #         pos_params = self.parse_pos_param(params["pos"])
-        #         pos_params = pos_params[0]
-
-        #         band = params.get("band", "g")
-        #         # TODO: png coloridas com banda fixa gri.
-        #         if format == "png":
-        #             band = "gri"
-        #         else:
-        #             allowed_bands = ["g", "r", "i", "z", "Y"]
-        #             if band not in allowed_bands:
-        #                 raise ParseError(f"Band parameter must be one of {', '.join(allowed_bands)}")
-
-        #         if pos_params["shape"] == "circle":
-        #             filename = "{:.5f}_{:.5f}_{}.{}".format(
-        #                 round(pos_params["ra"], 5), round(pos_params["dec"], 5), band, format
-        #             )
-        #             filepath = Path("/data/results").joinpath(filename)
-
-        #             result = des_cutout_circle.delay(
-        #                 ra=pos_params["ra"],
-        #                 dec=pos_params["dec"],
-        #                 size_arcmin=pos_params["size"],
-        #                 band=band,
-        #                 format=format,
-        #                 path=str(filepath),
-        #             )
-        #             result.wait(timeout=25)  # seconds
-        #             resultfile = Path(result.get())
-
-        #         mimetype = "application/fits"
-        #         if params["format"] == "png":
-        #             mimetype = "image/x-png"
-
-        #         fp = open(resultfile, "rb")
-        #         response = FileResponse(fp, content_type=mimetype, as_attachment=True)
-        #         response["Content-Length"] = resultfile.stat().st_size
-        #         response["Content-Disposition"] = f"attachment; filename={escape_uri_path(resultfile.name)}"
-        #         return response
-        # parameters = [p.to_dict() for p in params]
-        return Response({"success": True})
+        job_service.mark_completed(job.id)
+        fp = open(result_file, "rb")
+        response = FileResponse(fp, content_type=self._mimetype_for_format(output_format), as_attachment=True)
+        response["Content-Length"] = result_file.stat().st_size
+        response["Content-Disposition"] = f"attachment; filename={escape_uri_path(result_file.name)}"
+        return response
 
     def get(self, request, format=None):
-        """
-        Sync cutout get
-        """
-        # Todos os parametros pra lower case.
-        params = []
-        run_id = None
-        for key, value in request.query_params.items():
-            if key.lower() == "runid":
-                run_id = value
-            else:
-                params.append(JobParameter(parameter_id=key.lower(), value=value, is_post=False))
-
+        params, run_id, _ = _extract_job_request(request.query_params, is_post=False)
         return self.sync_cutout(user=request.user, params=params, run_id=run_id)
 
 
-# @extend_schema_view(get=cutout_schema, post=cutout_schema)
-# class SyncCutoutView(APIView):
-#     """Synchronously request a cutout. This will wait for the cutout to be
-#     completed and return the resulting image as a FITS file.
-#     (The image will be returned via a redirect to a URL at the underlying object store.)
-#     """
+@extend_schema_view(get=extend_schema(parameters=[]), post=cutout_schema)
+class AsyncCutoutView(APIView):
+    def get(self, request, format=None):
+        jobs = JobService().list_for_user(request.user)
+        serializer = AsyncJobSummarySerializer(jobs, many=True, context={"request": request})
+        return Response({"jobs": serializer.data})
 
-#     # authentication_classes = [authentication.TokenAuthentication]
-#     # permission_classes = [permissions.IsAdminUser]
+    def post(self, request, format=None):
+        logger = logging.getLogger("cutout")
+        logger.info(f"[AsyncCutoutView.post] called with data={request.data}")
+        params, run_id, requested_phase = _extract_job_request(request.data or request.query_params, is_post=True)
+        logger.info(f"[AsyncCutoutView.post] params={params} run_id={run_id} requested_phase={requested_phase}")
+        if not params:
+            logger.error("[AsyncCutoutView.post] No params provided")
+            raise ParameterError("At least one cutout parameter is required")
 
-#     # Yield successive n-sized
-#     # chunks from l.
-#     def divide_chunks(self, l, n):
-#         # looping till length l
-#         for i in range(0, len(l), n):
-#             yield l[i : i + n]
+        phase = (requested_phase or "RUN").upper()
+        if phase != "RUN":
+            logger.error(f"[AsyncCutoutView.post] Invalid phase: {phase}")
+            raise ParameterError("Only PHASE=RUN is supported when creating async jobs")
 
-#     # def create_task(self, params):
-#     def parse_pos_param(self, pos: str) -> list[dict]:
-#         shape = pos.split()[0]
-#         pos = pos.replace(shape, "")
-#         shape = shape.lower()
-#         positions = pos.split(",")
-#         result = []
+        job_service = JobService()
+        job = job_service.create(user=request.user, params=params, run_id=run_id)
+        logger.info(f"[AsyncCutoutView.post] Created job id={job.id}")
+        job_service.start_async(request.user, job.id)
+        logger.info(f"[AsyncCutoutView.post] Dispatched start_async for job id={job.id}")
 
-#         if shape == "circle":
-#             for p in positions:
-#                 params = p.strip().split()
-#                 result.append(
-#                     {"shape": shape, "ra": float(params[0]), "dec": float(params[1]), "size": float(params[2])}
-#                 )
-#         elif shape == "range":
-#             for p in positions:
-#                 params = p.strip().split()
-#                 result.append({"shape": shape, "ra": [params[0], params[1]], "dec": [params[2], params[3]]})
-#         elif shape == "polygon":
-#             for p in positions:
-#                 params = [float(value) for value in p.strip().split()]
-#                 x = list(self.divide_chunks(params, 2))
-#                 # cada elemento é um par [ra, dec]
-#                 result.append({"shape": shape, "positions": x})
+        job.refresh_from_db()
 
-#         else:
-#             raise ParseError("POS xtype can take one of the three values circle, range and polygon")
-#         return result
+        serializer = AsyncJobDetailSerializer(job, context={"request": request})
+        response = Response(serializer.data, status=status.HTTP_303_SEE_OTHER)
+        response["Location"] = _job_location(request, job)
+        logger.info(f"[AsyncCutoutView.post] Returning response for job id={job.id}")
 
-#     def sync_cutout(self, user, params):
-#         format = params.get("format", "fits")
-
-#         if params["id"] == "des_dr2":
-#             pos_params = self.parse_pos_param(params["pos"])
-#             pos_params = pos_params[0]
-
-#             band = params.get("band", "g")
-#             # TODO: png coloridas com banda fixa gri.
-#             if format == "png":
-#                 band = "gri"
-#             else:
-#                 allowed_bands = ["g", "r", "i", "z", "Y"]
-#                 if band not in allowed_bands:
-#                     raise ParseError(f"Band parameter must be one of {', '.join(allowed_bands)}")
-
-#             if pos_params["shape"] == "circle":
-#                 filename = "{:.5f}_{:.5f}_{}.{}".format(
-#                     round(pos_params["ra"], 5), round(pos_params["dec"], 5), band, format
-#                 )
-#                 filepath = Path("/data/results").joinpath(filename)
-
-#                 result = des_cutout_circle.delay(
-#                     ra=pos_params["ra"],
-#                     dec=pos_params["dec"],
-#                     size_arcmin=pos_params["size"],
-#                     band=band,
-#                     format=format,
-#                     path=str(filepath),
-#                 )
-#                 result.wait(timeout=25)  # seconds
-#                 resultfile = Path(result.get())
-
-#             mimetype = "application/fits"
-#             if params["format"] == "png":
-#                 mimetype = "image/x-png"
-
-#             fp = open(resultfile, "rb")
-#             response = FileResponse(fp, content_type=mimetype, as_attachment=True)
-#             response["Content-Length"] = resultfile.stat().st_size
-#             response["Content-Disposition"] = f"attachment; filename={escape_uri_path(resultfile.name)}"
-#             return response
-
-#         # source_id = params["id"]
-#         # band = params["band"]
-#         # format = params.get("format", "fits")
-#         # runid = params.get("runid", None)
-
-#         # return Response(
-#         #     {
-#         #         "user": user.username,
-#         #         "params": params,
-#         #         # "source_id": source_id,
-#         #         # "band": band,
-#         #         # "format": format,
-#         #         # "runid": runid,
-#         #         "message": "Hello, world!",
-#         #     }
-#         # )
-
-#     def get(self, request, format=None):
-#         """
-#         Sync cutout get
-#         """
-#         return self.sync_cutout(request.user, request.query_params)
-
-#         # return Response(self.parse_pos_param(request.query_params["pos"]))
-
-#     # TODO: Implementar o mesmo metodo usando post
-#     # def post(self, request):
-#     #     """
-#     #     Sync cutout post
-#     #     """
-#     #     print(request)
-#     #     print(request.data)
-#     #     return self.sync_cutout(request.user, request.data)
+        return response
 
 
-# @api_view(["GET", "POST"])
-# def hello_world(request):
-#     if request.method == "POST":
-#         return Response({"message": "Got some data!", "data": request.data})
-#     return Response({"message": "Hello, world!"})
+class AsyncJobDetailView(APIView):
+    def get(self, request, job_id: int, format=None):
+        job = JobService().get_for_user(request.user, job_id)
+        serializer = AsyncJobDetailSerializer(job, context={"request": request})
+        return Response(serializer.data)
+
+    def delete(self, request, job_id: int, format=None):
+        JobService().delete(request.user, job_id)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-# class TesteView(generics.ListAPIView):
-#     """
-#     View to list all users in the system.
+class AsyncJobPhaseView(APIView):
+    def get(self, request, job_id: int, format=None):
+        job = JobService().get_for_user(request.user, job_id)
+        return HttpResponse(job.phase, content_type="text/plain")
 
-#     * Requires token authentication.
-#     * Only admin users are able to access this view.
-#     """
+    def post(self, request, job_id: int, format=None):
+        phase = str(request.data.get("PHASE") or request.data.get("phase") or "").upper()
+        job_service = JobService()
 
-#     authentication_classes = [authentication.TokenAuthentication, authentication.SessionAuthentication]
-#     permission_classes = [permissions.IsAuthenticated]
+        if phase == "RUN":
+            job = job_service.get_for_user(request.user, job_id)
+            if job.phase not in (Job.ExecutionPhase.PENDING, Job.ExecutionPhase.HELD):
+                raise ParameterError(f"Cannot run job in phase {job.phase}")
+            job_service.start_async(request.user, job_id)
+        elif phase == "ABORT":
+            job_service.abort(request.user, job_id)
+        else:
+            raise ParameterError("PHASE must be RUN or ABORT")
 
-#     def get_queryset(self):
-#         return
+        job = job_service.get_for_user(request.user, job_id)
+        response = HttpResponse(job.phase, content_type="text/plain", status=status.HTTP_303_SEE_OTHER)
+        response["Location"] = _job_location(request, job)
+        return response
 
-#     def get_serializer_class(self):
-#         return
 
-#     def get(self, request, format=None):
-#         """
-#         Return a list of all users.
-#         """
-#         # usernames = [user.username for user in User.objects.all()]
-#         return Response({"teste": True})
+class AsyncJobParametersView(APIView):
+    def get(self, request, job_id: int, format=None):
+        parameters = JobService().get_parameters(request.user, job_id)
+        serializer = JobParameterSerializer(parameters, many=True)
+        return Response({"parameters": serializer.data})
+
+
+class AsyncJobResultsView(APIView):
+    def get(self, request, job_id: int, format=None):
+        results = JobService().get_results(request.user, job_id)
+        serializer = JobResultSerializer(results, many=True, context={"request": request})
+        return Response({"results": serializer.data})
+
+
+class AsyncJobResultView(APIView):
+    def get(self, request, job_id: int, result_id: str, format=None):
+        result = JobService().get_result(request.user, job_id, result_id)
+        if not result.file_path:
+            raise ServiceUnavailableError("Result file unavailable")
+
+        result_file = Path(result.file_path)
+        if not result_file.exists():
+            raise ServiceUnavailableError("Result file unavailable")
+
+        fp = open(result_file, "rb")
+        response = FileResponse(fp, content_type=result.mime_type or "application/octet-stream", as_attachment=True)
+        response["Content-Length"] = result_file.stat().st_size
+        response["Content-Disposition"] = f"attachment; filename={escape_uri_path(result_file.name)}"
+        return response

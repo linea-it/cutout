@@ -19,6 +19,7 @@ if READ_DOT_ENV_FILE:
 # ------------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/dev/ref/settings/#debug
 DEBUG = env.bool("DJANGO_DEBUG", False)
+LOGGING_LEVEL = env.str("DJANGO_LOG_LEVEL", "INFO")
 # Local time zone. Choices are
 # http://en.wikipedia.org/wiki/List_of_tz_zones_by_name
 # though not all of them may be available with every OS.
@@ -240,9 +241,6 @@ DJANGO_ADMIN_FORCE_ALLAUTH = env.bool("DJANGO_ADMIN_FORCE_ALLAUTH", default=Fals
 # See https://docs.djangoproject.com/en/dev/topics/logging for
 # more details on how to customize your logging configuration.
 LOG_DIR = Path("/data/log")
-LOGGING_LEVEL = "INFO"
-if DEBUG:
-    LOGGING_LEVEL = "DEBUG"
 
 LOGGING = {
     "version": 1,
@@ -281,7 +279,7 @@ LOGGING = {
             "backupCount": 5,
         },
     },
-    "root": {"level": "INFO", "handlers": ["console"]},
+    "root": {"level": LOGGING_LEVEL, "handlers": ["console"]},
     "loggers": {
         "django": {
             "level": LOGGING_LEVEL,
@@ -295,7 +293,7 @@ LOGGING = {
         },
         "cutout": {
             "level": LOGGING_LEVEL,
-            "handlers": ["cutout"],
+            "handlers": ["cutout", "console"],
             "propagate": False,
         },
     },

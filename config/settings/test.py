@@ -34,7 +34,6 @@ LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "standard": {"format": "%(asctime)s [%(levelname)s] %(message)s"},
         "verbose": {
             "format": "%(levelname)s %(asctime)s %(module)s %(message)s",
         },
@@ -47,4 +46,21 @@ LOGGING = {
         },
     },
     "root": {"level": "INFO", "handlers": ["console"]},
+    "loggers": {
+        "django": {
+            "level": "INFO",
+            "handlers": ["console"],
+            "propagate": False,
+        },
+        "django.db.backends": {
+            "level": "INFO",
+            "handlers": ["console"],
+            "propagate": False,
+        },
+        "cutout": {
+            "level": "INFO",
+            "handlers": ["console"],
+            "propagate": False,
+        },
+    },
 }

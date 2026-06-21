@@ -1,0 +1,21 @@
+{
+  "band": "g",
+  "color": false,
+  "engine": "astrocut",
+  "files": [],
+  "format": "fits",
+  "job_id": "86",
+  "mode": "fake_async_result",
+  "path": "/data/results/async/job_86_des_dr2_astrocut_g_1.fits",
+  "persist": false,
+  "rgb_bands": "gri",
+  "source_id": "des_dr2",
+  "stencil": {
+    "center": {
+      "dec": -10.18749,
+      "ra": 36.30911
+    },
+    "radius": 0.01,
+    "type": "circle"
+  }
+}

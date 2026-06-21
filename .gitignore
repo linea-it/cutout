@@ -52,6 +52,7 @@ coverage.xml
 
 # Django stuff:
 staticfiles/
+data/log/
 
 # Sphinx documentation
 docs/_build/
@@ -286,3 +287,8 @@ data/results/*.fits
 data/tiles/*.fz
 data/tiles/*.fits
 data/tmp/*.fits
+
+data/original_files/*.tar.gz
+data/tiles/Y6A1/*
+data/results/debug/*
+data/results/async/*

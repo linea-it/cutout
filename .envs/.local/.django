@@ -3,6 +3,7 @@
 USE_DOCKER=yes
 IPYTHONDIR=/app/.ipython
 DJANGO_DEBUG=True
+DJANGO_LOG_LEVEL=DEBUG
 
 # Redis
 # ------------------------------------------------------------------------------

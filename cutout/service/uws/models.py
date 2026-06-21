@@ -22,7 +22,7 @@ class Availability:
     available: bool
     """Whether the service appears to be available."""
 
-    note: Optional[str] = None
+    note: str | None = None
     """Supplemental information, usually when the service is not available."""
 
 
@@ -103,7 +103,7 @@ class JobError:
     use a single message and thus a sequence of length one.
     """
 
-    detail: Optional[str] = None
+    detail: str | None = None
     """Extended error message with additional detail."""
 
 
@@ -117,10 +117,10 @@ class JobResult:
     url: str
     """The URL for the result, which must point into a GCS bucket."""
 
-    size: Optional[int] = None
+    size: int | None = None
     """Size of the result in bytes."""
 
-    mime_type: Optional[str] = None
+    mime_type: str | None = None
     """MIME type of the result."""
 
 
@@ -138,10 +138,10 @@ class JobResultURL:
     url: str
     """Signed URL to retrieve the result."""
 
-    size: Optional[int] = None
+    size: int | None = None
     """Size of the result in bytes."""
 
-    mime_type: Optional[str] = None
+    mime_type: str | None = None
     """MIME type of the result."""
 
 
@@ -268,13 +268,13 @@ def _convert_job(job: SQLJob) -> Job:
             for p in sorted(job.parameters.all(), key=lambda p: p.id)
         ],
         results=[
-            # JobResult(
-            #     result_id=r.result_id,
-            #     url=r.url,
-            #     size=r.size,
-            #     mime_type=r.mime_type,
-            # )
-            # for r in sorted(job.results.all(), key=lambda r: r.sequence)
+            JobResult(
+                result_id=r.result_id,
+                url=r.url or "",
+                size=r.size,
+                mime_type=r.mime_type,
+            )
+            for r in sorted(job.results.all(), key=lambda r: r.sequence)
         ],
         error=error,
     )

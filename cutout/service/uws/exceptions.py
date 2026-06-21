@@ -36,3 +36,9 @@ class MultiValuedParameterError(UWSError):
 
 class ParameterError(UsageError):
     """Unsupported value passed to a parameter."""
+
+
+class ServiceUnavailableError(APIException):
+    """Service is temporarily unavailable or timed out."""
+
+    status_code = 503
