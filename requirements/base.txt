@@ -32,3 +32,4 @@ astropy==7.2.0 # https://www.astropy.org/
 numpy==2.4.4 # https://numpy.org/
 matplotlib==3.10.9 # https://matplotlib.org/
 astrocut==1.2.0 # https://astrocut.readthedocs.io/
+reproject==0.14.1

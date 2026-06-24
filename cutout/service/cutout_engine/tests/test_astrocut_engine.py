@@ -6,22 +6,18 @@ from cutout.service.cutout_engine.astrocut_engine import AstrocutEngine
 
 
 def test_astrocut_engine_calls_fits_cut(monkeypatch):
+    import numpy as np
+
     import cutout.service.cutout_engine.astrocut_engine as astro_module
 
     captured = {}
 
     def dummy_fits_cut(**kwargs):
         captured.update(kwargs)
-        return "/tmp/generated.fits"
-
-    moved = {}
-
-    def dummy_move(src, dst):
-        moved["src"] = src
-        moved["dst"] = dst
+        mock_hdu = astro_module.fits.PrimaryHDU(data=np.zeros((10, 10)))
+        return [astro_module.fits.HDUList([mock_hdu])]
 
     monkeypatch.setattr(astro_module, "fits_cut", dummy_fits_cut)
-    monkeypatch.setattr(astro_module.shutil, "move", dummy_move)
 
     engine = AstrocutEngine()
     result = engine.run_cutout(
@@ -36,10 +32,10 @@ def test_astrocut_engine_calls_fits_cut(monkeypatch):
     assert result == Path("/tmp/out.fits")
     assert captured["input_files"] == ["/data/tiles/a.fits.fz"]
     assert captured["single_outfile"] is True
-    assert moved == {"src": "/tmp/generated.fits", "dst": "/tmp/out.fits"}
+    assert captured["memory_only"] is True
 
 
-def test_astrocut_engine_rejects_non_fits() -> None:
+def test_astrocut_engine_rejects_unsupported_format() -> None:
     engine = AstrocutEngine()
 
     with pytest.raises(ValueError, match="supports only fits"):
@@ -48,8 +44,8 @@ def test_astrocut_engine_rejects_non_fits() -> None:
             stencil={"type": "circle", "center": {"ra": 1.0, "dec": 2.0}, "radius": 0.1},
             input_files=["/data/tiles/a.fits.fz"],
             band="g",
-            output_format="png",
-            output_path="/tmp/out.png",
+            output_format="jpg",
+            output_path="/tmp/out.jpg",
         )
 
 
