@@ -6,6 +6,9 @@ from cutout.service.cutout_engine.astrocut_engine import AstrocutEngine
 
 
 def test_astrocut_engine_calls_fits_cut(monkeypatch):
+    import numpy as np
+    from astropy.io import fits as real_fits
+
     import cutout.service.cutout_engine.astrocut_engine as astro_module
 
     captured = {}
@@ -22,6 +25,32 @@ def test_astrocut_engine_calls_fits_cut(monkeypatch):
 
     monkeypatch.setattr(astro_module, "fits_cut", dummy_fits_cut)
     monkeypatch.setattr(astro_module.shutil, "move", dummy_move)
+
+    # Mock fits.open to return a single-extension HDUList (single-tile path)
+    mock_hdu = real_fits.PrimaryHDU(data=np.zeros((10, 10)))
+    mock_hdul = real_fits.HDUList([mock_hdu])
+
+    class _MockOpen:
+        def __init__(self, path, mode="readonly"):
+            self._path = path
+            self._mode = mode
+
+        def __enter__(self):
+            return mock_hdul
+
+        def __exit__(self, *args):
+            pass
+
+        def close(self):
+            pass
+
+        def __getitem__(self, idx):
+            return mock_hdul[idx]
+
+        def __iter__(self):
+            return iter(mock_hdul)
+
+    monkeypatch.setattr(astro_module.fits, "open", _MockOpen)
 
     engine = AstrocutEngine()
     result = engine.run_cutout(
