@@ -18,7 +18,7 @@ from reproject import reproject_interp
 from cutout.service.stencils import Stencil
 
 from .base import CutoutEngine
-from .color_composer import compose_rgb
+from .color_composer import COLOR_PARAMS, _arcsinh_stretch, compose_rgb
 
 
 def _count_data_extensions(hdul: fits.HDUList) -> int:
@@ -160,7 +160,7 @@ class AstrocutEngine(CutoutEngine):
                     hdul[0].header["HISTORY"] = "Cutout produced by LIneA Cutout Service"
             return output_path
 
-        # --- PNG ---
+        # --- Color PNG ---
         from PIL import Image, PngImagePlugin
 
         if output_format == "png" and color:
@@ -241,8 +241,9 @@ class AstrocutEngine(CutoutEngine):
                         wcs_header = h.header
                         break
             for kw in ("CTYPE1", "CTYPE2", "CRPIX1", "CRPIX2", "CRVAL1", "CRVAL2",
-                       "CD1_1", "CD1_2", "CD2_1", "CD2_2", "NAXIS1", "NAXIS2",
-                       "RADESYS", "EQUINOX"):
+                       "CD1_1", "CD1_2", "CD2_1", "CD2_2",
+                       "CDELT1", "CDELT2", "PC1_1", "PC1_2", "PC2_1", "PC2_2",
+                       "NAXIS1", "NAXIS2", "RADESYS", "EQUINOX"):
                 if kw in wcs_header:
                     pnginfo.add_text(kw, str(wcs_header[kw]))
 
@@ -297,21 +298,26 @@ class AstrocutEngine(CutoutEngine):
             data = data_hdu
 
         arr = np.nan_to_num(data).astype(float)
-        arr -= arr.min()
-        if arr.max() > 0:
-            arr = (arr / arr.max() * 255.0).astype('uint8')
+        cfg = COLOR_PARAMS.get(source_id, {}).get("arcsinh_clip", {})
+        if band in cfg:
+            arr = _arcsinh_stretch(arr, *cfg[band])
         else:
-            arr = arr.astype('uint8')
+            arr -= arr.min()
+            if arr.max() > 0:
+                arr = (arr / arr.max() * 255.0).astype("uint8")
+            else:
+                arr = arr.astype("uint8")
 
-        # --- Embed WCS + provenance into PNG for ds9 ---
+        # --- Embed provenance into PNG metadata ---
         pnginfo = PngImagePlugin.PngInfo()
         pnginfo.add_text("ORIGIN", "data.linea.org.br")
         pnginfo.add_text("SOFTNAME", "LIneA Cutout Service")
         pnginfo.add_text("SOFTVERS", __version__)
         pnginfo.add_text("HISTORY", "Cutout produced by LIneA Cutout Service")
         for kw in ("CTYPE1", "CTYPE2", "CRPIX1", "CRPIX2", "CRVAL1", "CRVAL2",
-                   "CD1_1", "CD1_2", "CD2_1", "CD2_2", "NAXIS1", "NAXIS2",
-                   "RADESYS", "EQUINOX"):
+                   "CD1_1", "CD1_2", "CD2_1", "CD2_2",
+                   "CDELT1", "CDELT2", "PC1_1", "PC1_2", "PC2_1", "PC2_2",
+                   "NAXIS1", "NAXIS2", "RADESYS", "EQUINOX"):
             if kw in wcs_header:
                 pnginfo.add_text(kw, str(wcs_header[kw]))
 
