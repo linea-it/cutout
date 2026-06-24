@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 import numpy as np
 from astrocut import fits_cut
@@ -20,27 +18,18 @@ from .base import CutoutEngine
 from .color_composer import COLOR_PARAMS, _arcsinh_stretch, compose_rgb
 
 
-def _count_data_extensions(hdul: fits.HDUList) -> int:
-    return sum(1 for h in hdul if getattr(h, "data", None) is not None)
-
-
-def _mosaic_extensions(
-    hdul: fits.HDUList,
+def _mosaic_hdus(
+    data_hdus: list,
     *,
     center: SkyCoord,
     cutout_size,
     input_files: list[str],
-    output_path: Path,
-) -> Path:
-    """Reproject multi-extension output from ``fits_cut`` onto a common grid."""
+    ref_header: fits.Header,
+) -> fits.PrimaryHDU:
+    """Reproject data HDUs onto a common grid. Returns a single PrimaryHDU."""
 
-    data_hdus = [(i, h) for i, h in enumerate(hdul) if getattr(h, "data", None) is not None]
-    if len(data_hdus) <= 1:
-        return output_path
+    print(f"[astrocut] _mosaic_hdus: combining {len(data_hdus)} tiles")
 
-    print(f"[astrocut] _mosaic_extensions: combining {len(data_hdus)} tiles")
-
-    ref_header = data_hdus[0][1].header
     ref_wcs = WCS(ref_header)
     pixel_scale = abs(ref_wcs.proj_plane_pixel_scales()[0].to_value(u.deg))
 
@@ -65,6 +54,7 @@ def _mosaic_extensions(
     for _idx, hdu in data_hdus:
         arr, _ = reproject_interp(hdu, out_wcs, shape_out=(ny, nx), order="bilinear")
         arrays.append(arr.astype(np.float32))
+        hdu.data = None  # free original cutout, no longer needed after reprojection
 
     stack = np.stack(arrays)
     result = np.nanmean(stack, axis=0).astype(np.float32)
@@ -85,9 +75,19 @@ def _mosaic_extensions(
         if kw in ref_header:
             out_header[kw] = ref_header[kw]
 
-    primary = fits.PrimaryHDU(data=result, header=out_header)
-    primary.writeto(output_path, overwrite=True)
-    return output_path
+    return fits.PrimaryHDU(data=result, header=out_header)
+
+
+def _extract_data_hdus(hdul: fits.HDUList) -> list[tuple[int, fits.HDU]]:
+    """Return list of (index, hdu) for extensions that carry data."""
+    return [(i, h) for i, h in enumerate(hdul) if getattr(h, "data", None) is not None]
+
+
+def _add_provenance(header: fits.Header) -> None:
+    header["ORIGIN"] = "data.linea.org.br"
+    header["SOFTNAME"] = "LIneA Cutout Service"
+    header["SOFTVERS"] = __version__
+    header["HISTORY"] = "Cutout produced by LIneA Cutout Service"
 
 
 class AstrocutEngine(CutoutEngine):
@@ -112,7 +112,6 @@ class AstrocutEngine(CutoutEngine):
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_tag = uuid4().hex[:8]
 
         stencil_obj = Stencil.from_dict(stencil)
         coordinate = stencil_obj.get_center()
@@ -127,37 +126,32 @@ class AstrocutEngine(CutoutEngine):
 
         # --- FITS ---
         if output_format == "fits":
-            result = fits_cut(
+            results = fits_cut(
                 input_files=input_files,
                 coordinates=coordinate,
                 cutout_size=cutout_size,
                 single_outfile=True,
-                cutout_prefix=output_path.stem,
-                output_dir=output_path.parent,
+                memory_only=True,
             )
-            print(f"[astrocut] fits_cut produced {result}")
-            result_path = Path(result)
-            if result_path != output_path:
-                shutil.move(str(result_path), str(output_path))
+            hdul = results[0]
+            data_hdus = _extract_data_hdus(hdul)
 
-            temp = fits.open(output_path)
-            multi_tile = _count_data_extensions(temp) > 1
-            temp.close()
-
-            if multi_tile:
-                _mosaic_extensions(
-                    fits.open(output_path),
+            if len(data_hdus) > 1:
+                ref_header = data_hdus[0][1].header
+                primary = _mosaic_hdus(
+                    data_hdus,
                     center=coordinate,
                     cutout_size=cutout_size,
                     input_files=list(input_files),
-                    output_path=output_path,
+                    ref_header=ref_header,
                 )
             else:
-                with fits.open(output_path, mode="update") as hdul:
-                    hdul[0].header["ORIGIN"] = "data.linea.org.br"
-                    hdul[0].header["SOFTNAME"] = "LIneA Cutout Service"
-                    hdul[0].header["SOFTVERS"] = __version__
-                    hdul[0].header["HISTORY"] = "Cutout produced by LIneA Cutout Service"
+                hdu = data_hdus[0][1]
+                primary = fits.PrimaryHDU(data=hdu.data, header=hdu.header)
+                _add_provenance(primary.header)
+
+            primary.writeto(output_path, overwrite=True)
+            print(f"[astrocut] wrote FITS to {output_path}")
             return output_path
 
         # --- Color PNG ---
@@ -175,53 +169,44 @@ class AstrocutEngine(CutoutEngine):
             else:
                 bands = list(raw)
 
-            temp_paths = []
             arrays = []
+            wcs_header = None
             for b in bands:
                 files_b = input_files.get(b)
                 if not files_b:
                     raise ValueError(f"No input files provided for band {b}")
 
-                temp_fits = output_path.with_name(f"{output_path.stem}_{temp_tag}_{b}.fits")
-                print(f"[astrocut] creating temp fits for band {b} at {temp_fits} using files {files_b}")
-                res = fits_cut(
+                results = fits_cut(
                     input_files=files_b,
                     coordinates=coordinate,
                     cutout_size=cutout_size,
                     single_outfile=True,
-                    cutout_prefix=temp_fits.stem,
-                    output_dir=temp_fits.parent,
+                    memory_only=True,
                 )
-                res_path = Path(res)
-                mosa = fits.open(res_path)
-                if _count_data_extensions(mosa) > 1:
-                    mosa.close()
-                    _mosaic_extensions(
-                        fits.open(res_path),
+                hdul = results[0]
+                data_hdus = _extract_data_hdus(hdul)
+
+                if len(data_hdus) > 1:
+                    ref_header = data_hdus[0][1].header
+                    primary = _mosaic_hdus(
+                        data_hdus,
                         center=coordinate,
                         cutout_size=cutout_size,
                         input_files=list(files_b),
-                        output_path=res_path,
+                        ref_header=ref_header,
                     )
+                    arr = primary.data
+                    if wcs_header is None:
+                        wcs_header = primary.header
                 else:
-                    mosa.close()
-                print(f"[astrocut] fits_cut for band {b} produced {res_path}")
-                temp_paths.append(res_path)
+                    hdu = data_hdus[0][1]
+                    arr = hdu.data
+                    if wcs_header is None:
+                        wcs_header = hdu.header
 
-            for p in temp_paths:
-                with fits.open(p) as hdul:
-                    data_hdu = None
-                    for h in hdul:
-                        if getattr(h, "data", None) is not None:
-                            data_hdu = h.data
-                            break
-                    if data_hdu is None:
-                        raise ValueError(f"No data HDU found in {p}")
-                    arr = np.nan_to_num(data_hdu).astype(float)
-                    print(
-                        f"[astrocut] read array from {p}: dtype={arr.dtype} shape={arr.shape} min={arr.min()} max={arr.max()}"
-                    )
-                    arrays.append(arr)
+                arr = np.nan_to_num(arr).astype(np.float32)
+                print(f"[astrocut] band {b}: dtype={arr.dtype} shape={arr.shape} min={arr.min()} max={arr.max()}")
+                arrays.append(arr)
 
             min_rows = min(a.shape[0] for a in arrays)
             min_cols = min(a.shape[1] for a in arrays)
@@ -229,95 +214,74 @@ class AstrocutEngine(CutoutEngine):
 
             rgb = compose_rgb(arrays, bands, source_id)
 
-            # --- Embed WCS (from first band) + provenance into PNG for ds9 ---
+            # --- Embed provenance + WCS into PNG ---
             pnginfo = PngImagePlugin.PngInfo()
             pnginfo.add_text("ORIGIN", "data.linea.org.br")
             pnginfo.add_text("SOFTNAME", "LIneA Cutout Service")
             pnginfo.add_text("SOFTVERS", __version__)
             pnginfo.add_text("HISTORY", "RGB PNG composed from FITS cutouts using arcsinh stretch")
 
-            with fits.open(temp_paths[0]) as wcs_hdul:
-                wcs_header = wcs_hdul[0].header
-                for h in wcs_hdul:
-                    if getattr(h, "data", None) is not None:
-                        wcs_header = h.header
-                        break
-            for kw in (
-                "CTYPE1",
-                "CTYPE2",
-                "CRPIX1",
-                "CRPIX2",
-                "CRVAL1",
-                "CRVAL2",
-                "CD1_1",
-                "CD1_2",
-                "CD2_1",
-                "CD2_2",
-                "CDELT1",
-                "CDELT2",
-                "PC1_1",
-                "PC1_2",
-                "PC2_1",
-                "PC2_2",
-                "NAXIS1",
-                "NAXIS2",
-                "RADESYS",
-                "EQUINOX",
-            ):
-                if kw in wcs_header:
-                    pnginfo.add_text(kw, str(wcs_header[kw]))
+            if wcs_header is not None:
+                for kw in (
+                    "CTYPE1",
+                    "CTYPE2",
+                    "CRPIX1",
+                    "CRPIX2",
+                    "CRVAL1",
+                    "CRVAL2",
+                    "CD1_1",
+                    "CD1_2",
+                    "CD2_1",
+                    "CD2_2",
+                    "CDELT1",
+                    "CDELT2",
+                    "PC1_1",
+                    "PC1_2",
+                    "PC2_1",
+                    "PC2_2",
+                    "NAXIS1",
+                    "NAXIS2",
+                    "RADESYS",
+                    "EQUINOX",
+                ):
+                    if kw in wcs_header:
+                        pnginfo.add_text(kw, str(wcs_header[kw]))
 
             img = Image.fromarray(rgb)
             img.save(output_path, pnginfo=pnginfo, compress_level=9, optimize=True)
             print(f"[astrocut] saved PNG at {output_path} size={output_path.stat().st_size}")
-
-            for p in temp_paths:
-                try:
-                    p.unlink()
-                except Exception:
-                    pass
             return output_path
 
         # --- Mono PNG ---
-        temp_fits = output_path.with_name(f"{output_path.stem}_{temp_tag}_mono.fits")
-        result = fits_cut(
-            input_files=input_files if isinstance(input_files, list) else ([] if input_files is None else []),
+        from PIL import Image, PngImagePlugin
+
+        results = fits_cut(
+            input_files=input_files if isinstance(input_files, list) else [],
             coordinates=coordinate,
             cutout_size=cutout_size,
             single_outfile=True,
-            cutout_prefix=temp_fits.stem,
-            output_dir=temp_fits.parent,
+            memory_only=True,
         )
-        result_path = Path(result)
+        hdul = results[0]
+        data_hdus = _extract_data_hdus(hdul)
 
-        temp = fits.open(result_path)
-        if _count_data_extensions(temp) > 1:
-            temp.close()
-            _mosaic_extensions(
-                fits.open(result_path),
+        if len(data_hdus) > 1:
+            ref_header = data_hdus[0][1].header
+            primary = _mosaic_hdus(
+                data_hdus,
                 center=coordinate,
                 cutout_size=cutout_size,
                 input_files=list(input_files) if isinstance(input_files, list) else [],
-                output_path=result_path,
+                ref_header=ref_header,
             )
+            data = primary.data
+            wcs_header = primary.header
         else:
-            temp.close()
+            hdu = data_hdus[0][1]
+            data = hdu.data
+            wcs_header = hdu.header
 
-        print(f"[astrocut] mono fits_cut produced {result_path}")
-        with fits.open(result_path) as hdul:
-            # WCS lives in the data extension, not PRIMARY (HDU 0)
-            wcs_header = hdul[0].header
-            data_hdu = None
-            for h in hdul:
-                if getattr(h, "data", None) is not None:
-                    wcs_header = h.header
-                    data_hdu = h.data
-                    break
-            if data_hdu is None:
-                raise ValueError(f"No data HDU found in {result_path}")
-            data = data_hdu
-
-        arr = np.nan_to_num(data).astype(float)
+        arr = np.nan_to_num(data).astype(np.float32)
         cfg = COLOR_PARAMS.get(source_id, {}).get("arcsinh_clip", {})
         if band in cfg:
             arr = _arcsinh_stretch(arr, *cfg[band])
@@ -328,7 +292,7 @@ class AstrocutEngine(CutoutEngine):
             else:
                 arr = arr.astype("uint8")
 
-        # --- Embed provenance into PNG metadata ---
+        # --- Embed provenance + WCS into PNG ---
         pnginfo = PngImagePlugin.PngInfo()
         pnginfo.add_text("ORIGIN", "data.linea.org.br")
         pnginfo.add_text("SOFTNAME", "LIneA Cutout Service")
@@ -361,8 +325,5 @@ class AstrocutEngine(CutoutEngine):
 
         img = Image.fromarray(arr)
         img.save(output_path, pnginfo=pnginfo, compress_level=9, optimize=True)
-        try:
-            result_path.unlink()
-        except Exception:
-            pass
+        print(f"[astrocut] saved PNG at {output_path} size={output_path.stat().st_size}")
         return output_path

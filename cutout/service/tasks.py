@@ -29,11 +29,17 @@ def _validate_input_files(files: list[str] | dict[str, list[str]] | None) -> Non
         raise FileNotFoundError(msg)
 
 
-def _ensure_unpacked(files: list[str] | dict[str, list[str]] | None) -> list[str] | dict[str, list[str]] | None:
-    """If any input paths point to compressed `.fz` archives, unpack them to a tmp location and
-    return a structure of uncompressed paths suitable for engines like `astrocut`.
+def _ensure_unpacked(
+    files: list[str] | dict[str, list[str]] | None,
+) -> list[str] | dict[str, list[str]] | None:
+    """If any input paths point to compressed ``.fz`` archives, unpack them to a tmp location and
+    return a structure of uncompressed paths suitable for engines that require ``.fits`` files.
 
-    Returns the same shape as `files` but with `.fits` paths.
+    .. note::
+
+       ``fits_cut`` from astrocut handles ``.fz`` natively via ``.section``, so this helper
+       is currently **not used** by ``image_cutout``.  It is kept as a legacy utility for
+       engines or ad-hoc scripts that need uncompressed files on disk.
     """
     if not files:
         return files
@@ -58,7 +64,6 @@ def _ensure_unpacked(files: list[str] | dict[str, list[str]] | None) -> list[str
         out: dict[str, list[str]] = {}
         for k, lst in files.items():
             out[k] = [_unpack_path(p) for p in (lst or [])]
-            # log unpacked mapping
             print(f"[tasks] _ensure_unpacked: band={k} unpacked_paths={out[k]}")
         return out
 
@@ -92,19 +97,15 @@ def image_cutout(
         f"color={color} rgb_bands={rgb_bands}"
     )
     print(f"[tasks] image_cutout initial files={files}")
-    # If inputs reference compressed archives, unpack them for engines that require `.fits` files.
     cutout_engine = create_cutout_engine(engine)
-    unpacked = _ensure_unpacked(files)
-    print(f"[tasks] image_cutout unpacked files={unpacked}")
-    # validate the (possibly unpacked) input paths exist before running engine
-    _validate_input_files(unpacked)
+    _validate_input_files(files)
 
     try:
         print(f"[tasks] calling engine.run_cutout engine={engine} path={path}")
         result = cutout_engine.run_cutout(
             source_id=source_id,
             stencil=stencil,
-            input_files=unpacked,
+            input_files=files,
             band=band,
             output_format=format,
             output_path=path,
