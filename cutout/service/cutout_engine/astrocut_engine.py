@@ -11,10 +11,9 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.wcs import WCS
-
-from cutout import __version__
 from reproject import reproject_interp
 
+from cutout import __version__
 from cutout.service.stencils import Stencil
 
 from .base import CutoutEngine
@@ -82,8 +81,7 @@ def _mosaic_extensions(
     out_header["SOFTNAME"] = "LIneA Cutout Service"
     out_header["SOFTVERS"] = __version__
 
-    for kw in ("BUNIT", "MAGZERO", "FILTER", "BAND", "RADESYS", "EQUINOX",
-               "TELESCOP", "INSTRUME"):
+    for kw in ("BUNIT", "MAGZERO", "FILTER", "BAND", "RADESYS", "EQUINOX", "TELESCOP", "INSTRUME"):
         if kw in ref_header:
             out_header[kw] = ref_header[kw]
 
@@ -121,7 +119,9 @@ class AstrocutEngine(CutoutEngine):
         cutout_size = stencil_obj.get_cutout_size()
         stencil_type = stencil.get("type", "circle")
 
-        print(f"[astrocut] run_cutout: source_id={source_id} band={band} output_format={output_format} color={color} rgb_bands={rgb_bands} persist={persist}")
+        print(
+            f"[astrocut] run_cutout: source_id={source_id} band={band} output_format={output_format} color={color} rgb_bands={rgb_bands} persist={persist}"
+        )
         print(f"[astrocut] run_cutout: stencil type={stencil_type} coordinate={coordinate} cutout_size={cutout_size}")
         print(f"[astrocut] run_cutout: input_files={input_files}")
 
@@ -218,7 +218,9 @@ class AstrocutEngine(CutoutEngine):
                     if data_hdu is None:
                         raise ValueError(f"No data HDU found in {p}")
                     arr = np.nan_to_num(data_hdu).astype(float)
-                    print(f"[astrocut] read array from {p}: dtype={arr.dtype} shape={arr.shape} min={arr.min()} max={arr.max()}")
+                    print(
+                        f"[astrocut] read array from {p}: dtype={arr.dtype} shape={arr.shape} min={arr.min()} max={arr.max()}"
+                    )
                     arrays.append(arr)
 
             min_rows = min(a.shape[0] for a in arrays)
@@ -240,10 +242,28 @@ class AstrocutEngine(CutoutEngine):
                     if getattr(h, "data", None) is not None:
                         wcs_header = h.header
                         break
-            for kw in ("CTYPE1", "CTYPE2", "CRPIX1", "CRPIX2", "CRVAL1", "CRVAL2",
-                       "CD1_1", "CD1_2", "CD2_1", "CD2_2",
-                       "CDELT1", "CDELT2", "PC1_1", "PC1_2", "PC2_1", "PC2_2",
-                       "NAXIS1", "NAXIS2", "RADESYS", "EQUINOX"):
+            for kw in (
+                "CTYPE1",
+                "CTYPE2",
+                "CRPIX1",
+                "CRPIX2",
+                "CRVAL1",
+                "CRVAL2",
+                "CD1_1",
+                "CD1_2",
+                "CD2_1",
+                "CD2_2",
+                "CDELT1",
+                "CDELT2",
+                "PC1_1",
+                "PC1_2",
+                "PC2_1",
+                "PC2_2",
+                "NAXIS1",
+                "NAXIS2",
+                "RADESYS",
+                "EQUINOX",
+            ):
                 if kw in wcs_header:
                     pnginfo.add_text(kw, str(wcs_header[kw]))
 
@@ -314,10 +334,28 @@ class AstrocutEngine(CutoutEngine):
         pnginfo.add_text("SOFTNAME", "LIneA Cutout Service")
         pnginfo.add_text("SOFTVERS", __version__)
         pnginfo.add_text("HISTORY", "Cutout produced by LIneA Cutout Service")
-        for kw in ("CTYPE1", "CTYPE2", "CRPIX1", "CRPIX2", "CRVAL1", "CRVAL2",
-                   "CD1_1", "CD1_2", "CD2_1", "CD2_2",
-                   "CDELT1", "CDELT2", "PC1_1", "PC1_2", "PC2_1", "PC2_2",
-                   "NAXIS1", "NAXIS2", "RADESYS", "EQUINOX"):
+        for kw in (
+            "CTYPE1",
+            "CTYPE2",
+            "CRPIX1",
+            "CRPIX2",
+            "CRVAL1",
+            "CRVAL2",
+            "CD1_1",
+            "CD1_2",
+            "CD2_1",
+            "CD2_2",
+            "CDELT1",
+            "CDELT2",
+            "PC1_1",
+            "PC1_2",
+            "PC2_1",
+            "PC2_2",
+            "NAXIS1",
+            "NAXIS2",
+            "RADESYS",
+            "EQUINOX",
+        ):
             if kw in wcs_header:
                 pnginfo.add_text(kw, str(wcs_header[kw]))
 
