@@ -1,0 +1,211 @@
+================================================================================
+  EXEMPLOS DE CUTOUT — API DES DR2 (Y6A1 / r4907)
+================================================================================
+
+Autenticacao: Token HTTP header (veja comando para gerar na secao COMANDOS CURL)
+
+Endpoint sincrono:
+  GET http://localhost:80/api/sync
+
+Parametros obrigatorios:
+  POS=<STENCIL>  - CIRCLE <ra> <dec> <radius_deg>  (espacos como %20)
+  band=<grizY>   - um filtro por vez (para PNG colorido, usar color=true)
+  format=fits|png
+  id=des_dr2      - identifica o survey
+
+Parametros opcionais:
+  color=true        - ativa composicao RGB (PNG somente)
+  rgb_bands=gri     - bandas para RGB (default: gri)
+
+IMPORTANTE - Encoding:
+  - Espacos no valor de POS DEVEM ser URL-encoded como %20
+  - Ex: POS=CIRCLE%200.5%202.15%200.083333
+  - O valor NAO tem o prefixo "POS="; a string comeca direto com CIRCLE/RANGE/POLYGON
+
+Tiles disponiveis (Y6A1/r4907, ~0.73° de lado, 0.263"/pixel):
+
+  Tile            RA (deg)    Dec (deg)
+  DES0000+0209      0.000       +2.150
+  DES0000+0252      0.000       +2.867
+  DES0002+0001      0.500       +0.017
+  DES0002+0209      0.500       +2.150
+  DES0002-0041      0.500       -0.683
+  DES0003+0252      0.750       +2.867
+  DES0005+0001      1.250       +0.017
+  DES0005-0041      1.250       -0.683
+
+Bandas disponiveis: g, r, i, z, Y
+
+================================================================================
+  TABELA DE EXEMPLOS (todos testados)
+================================================================================
+
+Conversao: 1 arcmin = 0.016667 graus
+Pixel scale: 0.263 arcsec/pixel = 7.3056e-05 graus/pixel
+Tamanho da imagem: ceil(2 * radius_deg / 7.3056e-05) pixels
+
+#   Tile            RA      Dec       Raio     Raio(deg)  Banda  Formato  Status
+--  --------------  ------  --------  -------  ---------  -----  -------  ------
+1   DES0002+0001    0.500    +0.017    1'      0.016667   g      FITS     200  (456px, 0.8MB)
+2   DES0000+0209    0.000    +2.150    1'      0.016667   i      FITS     200  (456px, 0.8MB)
+3   DES0002+0209    0.500    +2.150    2'      0.033333   r      FITS     200  (912px, 3.2MB)
+4   DES0003+0252    0.750    +2.867    2'      0.033333   gri    PNG      200  (912px, 2.0MB)
+5   DES0005-0041    1.250    -0.683    3'      0.050000   z      FITS     200  (1368px, 7.2MB)
+6   DES0000+0252    0.000    +2.867    3'      0.050000   gri    PNG      200  (1368px, 4.4MB)
+7   DES0002+0209    0.500    +2.150    5'      0.083333   g      FITS     200  (2280px, 19.9MB)
+8   DES0000+0209    0.000    +2.150    5'      0.083333   r      FITS     200  (2280px, 19.9MB)
+9   DES0002-0041    0.500    -0.683    5'      0.083333   gri    PNG      200  (2280px, 12.1MB)
+10  DES0003+0252    0.750    +2.867    7'      0.116667   i      FITS     200  (3192px, 38.9MB)
+11  DES0005+0001    1.250    +0.017    7'      0.116667   gri    PNG      200  (3192px, 23.7MB)
+12  DES0002+0001    0.500    +0.017    7'      0.116667   Y      FITS     200  (3192px, 38.9MB)
+13  DES0002+0209    0.500    +2.150   10'      0.166667   r      FITS     200  (4560px, 79.4MB)
+14  DES0000+0252    0.000    +2.867   10'      0.166667   gri    PNG      200  (4560px, 49.7MB)
+15  DES0002+0209    0.500    +2.150   15'      0.250000   i      FITS     503  TIMEOUT (>27s)
+16  DES0005-0041    1.250    -0.683   15'      0.250000   gri    PNG      503  TIMEOUT (>27s)
+17  DES0002-0041    0.500    -0.683   15'      0.250000   g      FITS     503  TIMEOUT (>27s)
+
+================================================================================
+  COMANDOS CURL
+================================================================================
+
+# Rode a partir do WSL2 (localhost do Windows nao enxerga as portas do Docker).
+# Dica: teste sem -o primeiro (resposta no stdout), depois adicione -o arquivo.
+
+export TOKEN=$(docker compose exec -T django python manage.py shell -c "
+from cutout.users.models import User
+from rest_framework.authtoken.models import Token
+u = User.objects.get(username='dev')
+token, _ = Token.objects.get_or_create(user=u)
+print(token.key)
+")
+
+# 1' — Raio pequeno, resposta rapida (<1s)
+curl -f -o cutout_01_g_1arcmin.fits \
+  "http://localhost:80/api/sync?POS=CIRCLE%200.5%200.017%200.016667&band=g&format=fits&id=des_dr2" \
+  -H "Authorization: Token ${TOKEN}"
+
+curl -f -o cutout_02_i_1arcmin.fits \
+  "http://localhost:80/api/sync?POS=CIRCLE%200.0%202.15%200.016667&band=i&format=fits&id=des_dr2" \
+  -H "Authorization: Token ${TOKEN}"
+
+# 2' — Rapido, PNG colorido
+curl -f -o cutout_03_r_2arcmin.fits \
+  "http://localhost:80/api/sync?POS=CIRCLE%200.5%202.15%200.033333&band=r&format=fits&id=des_dr2" \
+  -H "Authorization: Token ${TOKEN}"
+
+curl -f -o cutout_04_gri_2arcmin.png \
+  "http://localhost:80/api/sync?POS=CIRCLE%200.75%202.867%200.033333&format=png&color=true&rgb_bands=gri&id=des_dr2" \
+  -H "Authorization: Token ${TOKEN}"
+
+# 3' — Medio
+curl -f -o cutout_05_z_3arcmin.fits \
+  "http://localhost:80/api/sync?POS=CIRCLE%201.25%20-0.683%200.05&band=z&format=fits&id=des_dr2" \
+  -H "Authorization: Token ${TOKEN}"
+
+curl -f -o cutout_06_gri_3arcmin.png \
+  "http://localhost:80/api/sync?POS=CIRCLE%200.0%202.867%200.05&format=png&color=true&rgb_bands=gri&id=des_dr2" \
+  -H "Authorization: Token ${TOKEN}"
+
+# 5' — Medio-grande (~2s-3s)
+curl -f -o cutout_07_g_5arcmin.fits \
+  "http://localhost:80/api/sync?POS=CIRCLE%200.5%202.15%200.083333&band=g&format=fits&id=des_dr2" \
+  -H "Authorization: Token ${TOKEN}"
+
+curl -f -o cutout_08_r_5arcmin.fits \
+  "http://localhost:80/api/sync?POS=CIRCLE%200.0%202.15%200.083333&band=r&format=fits&id=des_dr2" \
+  -H "Authorization: Token ${TOKEN}"
+
+curl -f -o cutout_09_gri_5arcmin.png \
+  "http://localhost:80/api/sync?POS=CIRCLE%200.5%20-0.683%200.083333&format=png&color=true&rgb_bands=gri&id=des_dr2" \
+  -H "Authorization: Token ${TOKEN}"
+
+# 7' — Grande (~1s-5s)
+curl -f -o cutout_10_i_7arcmin.fits \
+  "http://localhost:80/api/sync?POS=CIRCLE%200.75%202.867%200.116667&band=i&format=fits&id=des_dr2" \
+  -H "Authorization: Token ${TOKEN}"
+
+curl -f -o cutout_11_gri_7arcmin.png \
+  "http://localhost:80/api/sync?POS=CIRCLE%201.25%200.017%200.116667&format=png&color=true&rgb_bands=gri&id=des_dr2" \
+  -H "Authorization: Token ${TOKEN}"
+
+curl -f -o cutout_12_Y_7arcmin.fits \
+  "http://localhost:80/api/sync?POS=CIRCLE%200.5%200.017%200.116667&band=Y&format=fits&id=des_dr2" \
+  -H "Authorization: Token ${TOKEN}"
+
+# 10' — Muito grande (~7s-27s)
+curl -f -o cutout_13_r_10arcmin.fits \
+  "http://localhost:80/api/sync?POS=CIRCLE%200.5%202.15%200.166667&band=r&format=fits&id=des_dr2" \
+  -H "Authorization: Token ${TOKEN}"
+
+curl -f -o cutout_14_gri_10arcmin.png \
+  "http://localhost:80/api/sync?POS=CIRCLE%200.0%202.867%200.166667&format=png&color=true&rgb_bands=gri&id=des_dr2" \
+  -H "Authorization: Token ${TOKEN}"
+
+# 15' — Usar endpoint ASSINCRONO (sync da timeout ~27s)
+# POST /api/async com Content-Type: application/x-www-form-urlencoded
+curl -f -X POST "http://localhost:80/api/async" \
+  -H "Authorization: Token ${TOKEN}" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "POS=CIRCLE 0.5 2.15 0.25&band=i&format=fits&id=des_dr2&phase=RUN"
+
+# === COBERTURA PARCIAL / AUSENTE ===
+# Bounds reais dos tiles (do WCS dos FITS):
+#   DES0002+0209: RA=[0.362, 1.093] Dec=[1.793, 2.524]
+#   DES0003+0252: RA=[0.409, 1.140] Dec=[2.507, 3.237]
+#   DES0002+0001: RA=[0.301, 1.032] Dec=[-0.349, 0.382]
+
+# Fora do footprint — longe de todos os tiles
+# Esperado: 422 {"detail":"No available files on disk for the requested region"}
+curl -f "http://localhost:80/api/sync?POS=CIRCLE%2010.0%2010.0%200.016667&band=r&format=fits&id=des_dr2" \
+  -H "Authorization: Token ${TOKEN}"
+
+# Vao entre tiles — entre DES0002+0001 (Dec max=0.382) e DES0002+0209 (Dec min=1.793)
+# Cutout Dec [0.833, 1.167] nao encosta em nenhum tile
+# Esperado: 422
+curl -f "http://localhost:80/api/sync?POS=CIRCLE%200.5%201.0%200.166667&band=r&format=fits&id=des_dr2" \
+  -H "Authorization: Token ${TOKEN}"
+
+# Borda leste — 22% do circulo sem dados (crescente escuro a direita)
+# DES0002+0209 RA max=1.093. Cutout RA=[0.987, 1.153] — 3.6' alem do tile
+# Esperado: 200, regiao direita preenchida com zero
+curl -f -o partial_borda_5arcmin.fits \
+  "http://localhost:80/api/sync?POS=CIRCLE%201.07%202.15%200.083333&band=r&format=fits&id=des_dr2" \
+  -H "Authorization: Token ${TOKEN}"
+
+# Mosaico 2 tiles + canto vazio — 14% do circulo sem dados (canto superior direito)
+# Usa DES0002+0209 + DES0003+0252 (NINPUTS=2 no header). Cutout RA=[1.017, 1.183]
+# RA alem de 1.140 (max dos dois tiles) fica sem dados
+# Esperado: 200, mosaico de 2 tiles com canto superior direito preenchido com zero
+curl -f -o partial_mosaico_5arcmin.fits \
+  "http://localhost:80/api/sync?POS=CIRCLE%201.10%202.50%200.083333&band=r&format=fits&id=des_dr2" \
+  -H "Authorization: Token ${TOKEN}"
+
+================================================================================
+  NOTAS
+================================================================================
+
+- Cutouts >= 15' (0.25°) ESTOURAM o timeout do endpoint /api/sync (~27s).
+  Nesses casos usar o endpoint assincrono POST /api/async.
+
+- Dec negativo: usar o sinal no valor (ex: %20-0.683). O %20 antes eh o espaco.
+  NÃO usar --data-urlencode do curl (ele escapa o sinal errado na query string).
+
+- PNG colorido: nao passar band=, usar color=true&rgb_bands=gri.
+  As bandas no rgb_bands podem ser separadas por virgula: g,r,i
+
+- O campo id=des_dr2 eh obrigatorio e identifica qual survey/discovery usar.
+
+- Respostas bem-sucedidas retornam 200 com o binario no body.
+  Erros retornam JSON: {"detail": "mensagem"}.
+
+- Cobertura parcial: quando o cutout cobre area com tile + area sem tile,
+  o astrocut preenche os pixels sem dados com ZERO (preto no PNG).
+  Nao ha mascara ou canal alpha — o frontend precisa interpretar zero como "sem dados".
+
+- Mosaico automatico: quando o cutout intersecta 2+ tiles, o servico faz mosaico
+  automaticamente (reproject_interp + nanmean). Header FITS inclui NINPUTS e INFILE0x.
+  O preenchimento de areas descobertas continua sendo zero.
+
+- O endpoint /api/sync tem timeout de ~27s. Cutouts > 10' ou multi-tile grandes
+  podem estourar — usar /api/async nesses casos.
+================================================================================

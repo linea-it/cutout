@@ -287,8 +287,9 @@ data/results/*.fits
 data/tiles/*.fz
 data/tiles/*.fits
 data/tmp/*.fits
+data/tmp/*.png
 
 data/original_files/*.tar.gz
-data/tiles/Y6A1/*
+data/tiles/*
 data/results/debug/*
 data/results/async/*

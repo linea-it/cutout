@@ -50,12 +50,16 @@ class JobService:
 
     def start(self, user: User, job_id: int):
         """Start execution of a job."""
+        print(f"[JobService.start] called with user={user} job_id={job_id}")
         sqljob = self.get_for_user(user, job_id)
         if sqljob.phase not in (Job.ExecutionPhase.PENDING, Job.ExecutionPhase.HELD):
             raise InvalidPhaseError("Cannot start job in phase {job.phase}")
 
+        print(f"[JobService.start] sqljob.phase={sqljob.phase}")
         job = _convert_job(sqljob)
+        print(f"[JobService.start] calling policy.dispatch with job_id={job.job_id}")
         message = self._policy.dispatch(job)
+        print(f"[JobService.start] policy.dispatch returned: {message}")
 
         # TODO: Marcar o job como QUEUED
         self.mark_queued(job_id, message.id)

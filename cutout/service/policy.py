@@ -90,19 +90,30 @@ class ImageCutoutPolicy(UWSPolicy):
         Currently, only one dataset ID and only one stencil are supported.
         This limitation is expected to be relaxed in a later version.
         """
+        print(f"[dispatch] job_id={job.job_id} dispatching to backend")
         cutout_params = CutoutParameters.from_job_parameters(job.parameters)
+        print(f"[dispatch] cutout_params: {cutout_params}")
+
+        print(f"[dispatch] calling convert_to_list_of_task_params with cutout_params: {cutout_params}")
         tasks_params = self.convert_to_list_of_task_params(cutout_params)
+        print(f"[dispatch] tasks_params: {tasks_params}")
 
         # Celery tasks signature
         tasks = []
 
         for t in tasks_params:
+            print(f"[dispatch] checking survey access for user_id={job.owner} survey_id={t['id']}")
             if not self._survey_access_policy.can_request_cutout(user_id=job.owner, survey_id=t["id"]):
                 raise PermissionDeniedError(f"User has no access to survey {t['id']}")
 
+            print(f"[dispatch] building result path for job_id={job.job_id} task_params={t}")
             resultfile = self._build_result_path(job, t)
+            print(f"[dispatch] resultfile path: {resultfile}")
+
             # If color composition requested, collect files per RGB band
             if t.get("color"):
+                print(f"[dispatch] color composition requested, parsing rgb_bands for task_params={t}")
+
                 # parse rgb_bands: accept 'gri', 'g,r,i' or 'g r i'
                 raw = t.get("rgb_bands", "gri")
                 if "," in raw:
@@ -146,7 +157,15 @@ class ImageCutoutPolicy(UWSPolicy):
                     )
                 )
             else:
+                print(
+                    f"[dispatch] single band requested, finding files for survey_id={t['id']} stencil={t['stencil_obj']} band={t['band']}"
+                )
+
                 files = self._file_locator.find_files(survey_id=t["id"], stencil=t["stencil_obj"], band=t["band"])
+                print(
+                    f"[policy] dispatch: found {len(files)} files for survey_id={t['id']} stencil={t['stencil_obj']} band={t['band']}"
+                )
+
                 if not files:
                     raise ParameterError("No files found for the requested region")
                 candidate = [str(f.file_path) for f in files if f.file_path]
@@ -207,13 +226,8 @@ class ImageCutoutPolicy(UWSPolicy):
         logger.info("[dispatch_async] job_id=%s message_id=%s", job.job_id, message_id)
 
         db_tasks = list(SQLTask.objects.filter(job_id=int(job.job_id)).order_by("sequence"))
-        cutout_sigs = [
-            run_cutout_for_pos.s(job_id=job.job_id, task_id=str(task.id))
-            for task in db_tasks
-        ]
-        result = celery_chord(cutout_sigs)(
-            finalize_job.s(job_id=job.job_id).set(task_id=message_id)
-        )
+        cutout_sigs = [run_cutout_for_pos.s(job_id=job.job_id, task_id=str(task.id)) for task in db_tasks]
+        result = celery_chord(cutout_sigs)(finalize_job.s(job_id=job.job_id).set(task_id=message_id))
         logger.info("[dispatch_async] chord dispatched: %d task(s), callback_id=%s", len(cutout_sigs), message_id)
         return result
 

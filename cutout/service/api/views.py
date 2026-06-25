@@ -171,10 +171,12 @@ class SyncCutoutView(APIView):
         return "application/fits"
 
     def sync_cutout(self, user: User, params: list[JobParameter], run_id: str | None):
+        print("Entrou aqui")
         job_service = JobService()
         job = job_service.create(user=user, params=params, run_id=run_id)
+        print("step 0")
         async_result = job_service.start(user, job_id=job.id)
-
+        print("step 1")
         output_format = "fits"
         for p in params:
             if p.parameter_id == "format":
@@ -182,19 +184,29 @@ class SyncCutoutView(APIView):
                 break
 
         try:
+            print("step 2")
             job_service.mark_executing(job.id)
+            print("step 3")
             result_path = async_result.get(timeout=self.sync_timeout_seconds)
         except CeleryTimeoutError as exc:
+            print("step 4")
             job_service.mark_error(job.id)
+            print("step 5")
             raise ServiceUnavailableError("Sync cutout timed out") from exc
         except Exception as exc:
+            print("step 6")
             job_service.mark_error(job.id)
+            print("step 7")
             raise ParameterError(str(exc)) from exc
 
+        print("step 8")
         result_file = Path(result_path)
         if not result_file.exists():
+            print("step 9")
             job_service.mark_error(job.id)
             raise ServiceUnavailableError("Result file unavailable")
+
+        print("step 10")
 
         job_service.mark_completed(job.id)
         fp = open(result_file, "rb")

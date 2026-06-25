@@ -22,8 +22,8 @@ class _TileBounds:
 
 class DesCsvFileLocator(FileLocator):
     def __init__(self, tile_list_path: Path | None = None, tiles_root: Path | None = None) -> None:
-        self._tile_list_path = tile_list_path or Path("/app/cutout/lib/dr2_tiles.csv")
-        self._tiles_root = tiles_root or Path("/data/tiles")
+        self._tile_list_path = tile_list_path or Path("/app/cutout/service/discovery/dr2_tiles.csv")
+        self._tiles_root = tiles_root or Path("/data/tiles/des_dr2")
 
     def find_files(
         self,
@@ -38,18 +38,24 @@ class DesCsvFileLocator(FileLocator):
         ra_min, ra_max, dec_min, dec_max = self._stencil_to_bounds(stencil)
         descriptors: list[FileDescriptor] = []
 
-        for tile in self._read_tiles():
-            if not self._intersects(tile, ra_min=ra_min, ra_max=ra_max, dec_min=dec_min, dec_max=dec_max):
-                continue
-            descriptors.append(
-                FileDescriptor(
+        try:
+            for tile in self._read_tiles():
+                if not self._intersects(tile, ra_min=ra_min, ra_max=ra_max, dec_min=dec_min, dec_max=dec_max):
+                    continue
+
+                print("Achou uma tile")
+                print(tile)
+                descriptor = FileDescriptor(
                     tile_id=tile.tile_id,
                     archive_path=tile.archive_path,
                     file_path=self._build_file_path(tile.archive_path, band),
                     band=band,
                 )
-            )
-
+                print(descriptor)
+                descriptors.append(descriptor)
+        except Exception as e:
+            print(f"[DesCsvFileLocator.find_files] Error while finding files: {e}")
+            raise
         return descriptors
 
     def _read_tiles(self) -> list[_TileBounds]:
@@ -57,6 +63,9 @@ class DesCsvFileLocator(FileLocator):
         with self._tile_list_path.open("r", encoding="utf-8") as f:
             reader = csv.DictReader(f, delimiter=";")
             for row in reader:
+                if not all(key in row for key in ["tilename", "rall", "decll", "raur", "decur"]):
+                    print(f"[DesCsvFileLocator._read_tiles] Skipping row due to missing keys: {row}")
+                    continue
                 rows.append(
                     _TileBounds(
                         tile_id=row["tilename"],
@@ -64,16 +73,27 @@ class DesCsvFileLocator(FileLocator):
                         dec_min=float(row["decll"]),
                         ra_max=float(row["raur"]),
                         dec_max=float(row["decur"]),
-                        archive_path=row["archive_path"],
+                        archive_path=row.get("archive_path"),
+                        # archive_path=row.get("archive_path") or f"Y6A1/r4907/{row['tilename']}/p01/coadd",
                     )
                 )
+
+        print(f"[DesCsvFileLocator._read_tiles] read {len(rows)} tiles from {self._tile_list_path}")
         return rows
 
     @staticmethod
     def _intersects(tile: _TileBounds, *, ra_min: float, ra_max: float, dec_min: float, dec_max: float) -> bool:
-        ra_overlap = tile.ra_min <= ra_max and tile.ra_max >= ra_min
         dec_overlap = tile.dec_min <= dec_max and tile.dec_max >= dec_min
-        return ra_overlap and dec_overlap
+        if not dec_overlap:
+            return False
+        ra_overlap = tile.ra_min <= ra_max and tile.ra_max >= ra_min
+        if ra_overlap:
+            return True
+        if tile.ra_max > 360:
+            ra_overlap = (tile.ra_min - 360) <= ra_max and (tile.ra_max - 360) >= ra_min
+        if not ra_overlap and ra_min < 0:
+            ra_overlap = tile.ra_min <= (ra_max + 360) and tile.ra_max >= (ra_min + 360)
+        return ra_overlap
 
     @staticmethod
     def _stencil_to_bounds(stencil: Stencil) -> tuple[float, float, float, float]:
@@ -100,5 +120,9 @@ class DesCsvFileLocator(FileLocator):
             return None
 
         parts = archive_path.split("/")
-        filename = f"{parts[2]}_{parts[1]}{parts[3]}_{band}.fits.fz"
-        return self._tiles_root.joinpath(archive_path).joinpath(filename)
+        tilename = parts[2]
+        run = parts[1]
+        process = parts[3]
+
+        filename = f"{tilename}_{run}{process}_{band}.fits.fz"
+        return self._tiles_root.joinpath(tilename).joinpath(filename)
