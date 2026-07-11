@@ -25,22 +25,40 @@ class UWSPolicy(ABC):
     """
 
     @abstractmethod
-    def dispatch(self, job: Job):
-        """Dispatch a job to a backend worker.
+    def create_tasks_for_job(self, job: Job, params: list[JobParameter], execution_mode: str = "async") -> list:
+        """Create the Task rows for a job, one per cutout execution unit.
 
-        This method is responsible for converting UWS job parameters to the
-        appropriate arguments for a backend job and invoking it with the
-        appropriate timeout.
+        Parameters
+        ----------
+        job
+            The job the tasks belong to.
+        params
+            The job parameters.
+        execution_mode
+            "sync" or "async"; selects the results directory for the
+            generated files.
+
+        Returns
+        -------
+        list
+            The created Task rows.
+        """
+
+    @abstractmethod
+    def dispatch_async(self, job: Job, message_id: str):
+        """Dispatch the job's tasks to the backend workers.
 
         Parameters
         ----------
         job
             The job to start.
+        message_id
+            Identifier used to track the dispatched work.
 
         Returns
         -------
-        dramatiq.Message
-            The message sent to the backend worker.
+        celery.result.AsyncResult
+            The result handle of the dispatched workflow.
         """
 
     @abstractmethod

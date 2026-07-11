@@ -1,17 +1,17 @@
 import logging
 from collections.abc import Iterable
 from pathlib import Path
-from typing import List, Optional
 
-from celery.exceptions import TimeoutError as CeleryTimeoutError
 from django.http import FileResponse, HttpResponse
 from django.urls import reverse
 from django.utils.encoding import escape_uri_path
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import status
+from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from cutout.service.cutout_runner import perform_cutout
 from cutout.service.models import Job
 from cutout.service.uws.exceptions import ParameterError, ServiceUnavailableError
 from cutout.service.uws.models import JobParameter
@@ -155,7 +155,7 @@ cutout_schema = extend_schema(
             allow_blank=False,
             many=False,
             default="astrocut",
-            description=("Cutout backend engine. Supported values: astrocut, legacy"),
+            description=("Cutout backend engine. Supported values: astrocut"),
         ),
     ],
 )
@@ -163,54 +163,48 @@ cutout_schema = extend_schema(
 
 @extend_schema_view(get=cutout_schema, post=cutout_schema)
 class SyncCutoutView(APIView):
-    sync_timeout_seconds = 25
-
     def _mimetype_for_format(self, output_format: str) -> str:
         if output_format.lower() == "png":
             return "image/x-png"
         return "application/fits"
 
     def sync_cutout(self, user: User, params: list[JobParameter], run_id: str | None):
-        print("Entrou aqui")
+        """Run a cutout synchronously inside the request.
+
+        Database flow is identical to the async pipeline (Job + Task rows,
+        status transitions and JobResult recorded by `perform_cutout`), but
+        execution happens inline and the result file is returned directly.
+        """
+        logger = logging.getLogger("cutout")
         job_service = JobService()
-        job = job_service.create(user=user, params=params, run_id=run_id)
-        print("step 0")
-        async_result = job_service.start(user, job_id=job.id)
-        print("step 1")
-        output_format = "fits"
-        for p in params:
-            if p.parameter_id == "format":
-                output_format = p.value
-                break
+
+        job = job_service.create(user=user, params=params, run_id=run_id, execution_mode="sync")
+        logger.info("[SyncCutoutView] created job_id=%s", job.id)
+
+        tasks = list(job.tasks.order_by("sequence"))
+        if len(tasks) != 1:
+            job_service.mark_error(job.id)
+            raise ParameterError("Only one cutout task is supported in sync mode")
+        task = tasks[0]
 
         try:
-            print("step 2")
-            job_service.mark_executing(job.id)
-            print("step 3")
-            result_path = async_result.get(timeout=self.sync_timeout_seconds)
-        except CeleryTimeoutError as exc:
-            print("step 4")
-            job_service.mark_error(job.id)
-            print("step 5")
-            raise ServiceUnavailableError("Sync cutout timed out") from exc
+            result = perform_cutout(job.id, task.id)
+        except APIException:
+            # Task and Job are already marked ERROR by perform_cutout
+            raise
         except Exception as exc:
-            print("step 6")
-            job_service.mark_error(job.id)
-            print("step 7")
             raise ParameterError(str(exc)) from exc
 
-        print("step 8")
-        result_file = Path(result_path)
+        result_file = Path(result["file_path"])
         if not result_file.exists():
-            print("step 9")
             job_service.mark_error(job.id)
             raise ServiceUnavailableError("Result file unavailable")
 
-        print("step 10")
-
         job_service.mark_completed(job.id)
+        logger.info("[SyncCutoutView] job_id=%s completed result_id=%s", job.id, result["result_id"])
+
         fp = open(result_file, "rb")
-        response = FileResponse(fp, content_type=self._mimetype_for_format(output_format), as_attachment=True)
+        response = FileResponse(fp, content_type=self._mimetype_for_format(task.output_format), as_attachment=True)
         response["Content-Length"] = result_file.stat().st_size
         response["Content-Disposition"] = f"attachment; filename={escape_uri_path(result_file.name)}"
         return response
@@ -224,14 +218,22 @@ class SyncCutoutView(APIView):
 class AsyncCutoutView(APIView):
     def get(self, request, format=None):
         jobs = JobService().list_for_user(request.user)
-        serializer = AsyncJobSummarySerializer(jobs, many=True, context={"request": request})
+        serializer = AsyncJobSummarySerializer(
+            jobs,
+            many=True,
+            context={"request": request},
+        )
         return Response({"jobs": serializer.data})
 
     def post(self, request, format=None):
         logger = logging.getLogger("cutout")
         logger.info(f"[AsyncCutoutView.post] called with data={request.data}")
-        params, run_id, requested_phase = _extract_job_request(request.data or request.query_params, is_post=True)
-        logger.info(f"[AsyncCutoutView.post] params={params} run_id={run_id} requested_phase={requested_phase}")
+
+        params, run_id, requested_phase = _extract_job_request(
+            request.data or request.query_params,
+            is_post=True,
+        )
+        logger.info(f"[AsyncCutoutView.post] params={params} run_id={run_id} " f"requested_phase={requested_phase}")
         if not params:
             logger.error("[AsyncCutoutView.post] No params provided")
             raise ParameterError("At least one cutout parameter is required")
@@ -242,8 +244,13 @@ class AsyncCutoutView(APIView):
             raise ParameterError("Only PHASE=RUN is supported when creating async jobs")
 
         job_service = JobService()
-        job = job_service.create(user=request.user, params=params, run_id=run_id)
+        job = job_service.create(
+            user=request.user,
+            params=params,
+            run_id=run_id,
+        )
         logger.info(f"[AsyncCutoutView.post] Created job id={job.id}")
+
         job_service.start_async(request.user, job.id)
         logger.info(f"[AsyncCutoutView.post] Dispatched start_async for job id={job.id}")
 

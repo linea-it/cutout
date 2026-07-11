@@ -293,3 +293,5 @@ data/original_files/*.tar.gz
 data/tiles/*
 data/results/debug/*
 data/results/async/*
+data/results/sync/*
+!data/results/sync/.gitkeep

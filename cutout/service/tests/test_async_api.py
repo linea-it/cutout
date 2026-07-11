@@ -15,11 +15,11 @@ pytestmark = pytest.mark.django_db
 
 
 def _patch_async_result_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    def _fake_path(self, job, task_params, sequence):
+    def _fake_path(self, job, task_params, sequence, execution_mode):
         extension = "png" if str(task_params.get("format", "fits")).lower() == "png" else "fits"
-        return tmp_path / f"job_{job.job_id}_{sequence}.{extension}"
+        return tmp_path / execution_mode / f"job_{job.job_id}_{sequence}.{extension}"
 
-    monkeypatch.setattr(ImageCutoutPolicy, "_build_async_result_path", _fake_path)
+    monkeypatch.setattr(ImageCutoutPolicy, "_build_task_result_path", _fake_path)
 
 
 class _FakeLocator:
