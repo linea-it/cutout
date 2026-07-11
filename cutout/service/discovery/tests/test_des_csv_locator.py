@@ -23,7 +23,7 @@ def test_find_files_circle_returns_intersecting_tiles(tmp_path: Path) -> None:
     files = locator.find_files(survey_id="des_dr2", stencil=stencil, band="g")
 
     assert [f.tile_id for f in files] == ["TILE_A", "TILE_B"]
-    assert str(files[0].file_path).endswith("/Y6A1/r4907/TILE_A/p01/coadd/TILE_A_r4907p01_g.fits.fz")
+    assert str(files[0].file_path) == "/data/tiles/TILE_A/TILE_A_r4907p01_g.fits.fz"
 
 
 def test_find_files_range_returns_single_tile(tmp_path: Path) -> None:

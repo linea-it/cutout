@@ -17,7 +17,7 @@ def test_cutout_parameters_parses_engine() -> None:
     assert parsed.ids == ["des_dr2"]
 
 
-def test_cutout_parameters_without_engine_keeps_empty_list() -> None:
+def test_cutout_parameters_without_engine_defaults_to_astrocut() -> None:
     params = [
         JobParameter(parameter_id="id", value="des_dr2"),
         JobParameter(parameter_id="pos", value="CIRCLE 10 0 1"),
@@ -27,4 +27,4 @@ def test_cutout_parameters_without_engine_keeps_empty_list() -> None:
 
     parsed = CutoutParameters.from_job_parameters(params)
 
-    assert parsed.engines == []
+    assert parsed.engines == ["astrocut"]
