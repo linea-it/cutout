@@ -4,6 +4,8 @@ import pytest
 from django.urls import reverse
 from rest_framework.test import APIClient
 
+from cutout.service import cutout_runner
+from cutout.service.discovery import FileDescriptor
 from cutout.service.policy import ImageCutoutPolicy
 from cutout.service.uws.models import JobParameter
 from cutout.service.uws.service import JobService
@@ -20,8 +22,40 @@ def _patch_async_result_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     monkeypatch.setattr(ImageCutoutPolicy, "_build_async_result_path", _fake_path)
 
 
+class _FakeLocator:
+    def __init__(self, input_file: Path):
+        self._input_file = input_file
+
+    def find_files(self, *, survey_id, stencil, band=None):
+        return [
+            FileDescriptor(
+                tile_id="DES0002+0001",
+                archive_path="Y6A1/r4907/DES0002+0001/p01/coadd",
+                file_path=self._input_file,
+                band=band,
+            )
+        ]
+
+
+class _FakeEngine:
+    def run_cutout(self, **kwargs):
+        output_path = Path(kwargs["output_path"])
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"fake fits data")
+        return output_path
+
+
+def _patch_cutout_execution(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Replace file discovery and the cutout engine so perform_cutout runs without real tiles."""
+    input_file = tmp_path / "DES0002+0001_r4907p01_g.fits.fz"
+    input_file.write_bytes(b"tile data")
+    monkeypatch.setattr(cutout_runner, "DesCsvFileLocator", lambda: _FakeLocator(input_file))
+    monkeypatch.setattr(cutout_runner, "create_cutout_engine", lambda name: _FakeEngine())
+
+
 def test_async_create_runs_job_and_persists_result(user, settings, monkeypatch, tmp_path):
     _patch_async_result_path(monkeypatch, tmp_path)
+    _patch_cutout_execution(monkeypatch, tmp_path)
     settings.CELERY_TASK_ALWAYS_EAGER = True
     settings.CELERY_TASK_EAGER_PROPAGATES = True
     client = APIClient()
@@ -58,6 +92,7 @@ def test_async_create_runs_job_and_persists_result(user, settings, monkeypatch, 
 
 def test_async_phase_run_starts_pending_job(user, settings, monkeypatch, tmp_path):
     _patch_async_result_path(monkeypatch, tmp_path)
+    _patch_cutout_execution(monkeypatch, tmp_path)
     settings.CELERY_TASK_ALWAYS_EAGER = True
     settings.CELERY_TASK_EAGER_PROPAGATES = True
     client = APIClient()

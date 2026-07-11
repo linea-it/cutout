@@ -16,7 +16,7 @@ from cutout.service.cutout_parameters import CutoutParameters
 from cutout.service.discovery import DesCsvFileLocator
 from cutout.service.models import Task as SQLTask
 from cutout.service.policies import DesPublicAccessPolicy
-from cutout.service.tasks import finalize_job, image_cutout, run_cutout_for_pos
+from cutout.service.tasks import finalize_job, image_cutout, perform_cutout_task
 from cutout.service.uws.exceptions import MultiValuedParameterError, ParameterError, PermissionDeniedError
 from cutout.service.uws.models import Job, JobParameter
 from cutout.service.uws.policy import UWSPolicy
@@ -226,7 +226,7 @@ class ImageCutoutPolicy(UWSPolicy):
         logger.info("[dispatch_async] job_id=%s message_id=%s", job.job_id, message_id)
 
         db_tasks = list(SQLTask.objects.filter(job_id=int(job.job_id)).order_by("sequence"))
-        cutout_sigs = [run_cutout_for_pos.s(job_id=job.job_id, task_id=str(task.id)) for task in db_tasks]
+        cutout_sigs = [perform_cutout_task.s(job_id=job.job_id, task_id=str(task.id)) for task in db_tasks]
         result = celery_chord(cutout_sigs)(finalize_job.s(job_id=job.job_id).set(task_id=message_id))
         logger.info("[dispatch_async] chord dispatched: %d task(s), callback_id=%s", len(cutout_sigs), message_id)
         return result
