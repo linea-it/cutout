@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% load static %}
+
+{% block title %}Login{% endblock title %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-center" style="min-height: 70vh;">
+  <div class="card shadow" style="max-width: 720px; border-radius: 20px;">
+    <div class="card-body p-4">
+      <div class="row align-items-center">
+        <div class="col-md-5 text-center">
+          <img src="{% static 'images/linea-logo.png' %}" alt="LIneA Logo" class="img-fluid"
+            style="max-width: 220px;" />
+        </div>
+        <div class="col-md-7">
+          <div class="text-center mb-3">
+            <h3 class="fw-bold mb-0">Welcome to</h3>
+            <h3 class="fw-bold">LIneA Cutout Service</h3>
+          </div>
+          <div class="d-grid gap-2">
+            <a href="{{ settings.RUBIN_LOGIN_URL }}" class="btn btn-primary fw-bold text-uppercase">
+              LSST Members (RSP account)
+            </a>
+            <a href="{{ settings.LINEA_LOGIN_URL }}" class="btn btn-primary fw-bold text-uppercase">
+              General Public
+            </a>
+          </div>
+          <p class="text-center mt-3 mb-0">
+            New user? Register here:
+            <a href="{{ settings.RUBIN_REGISTER_URL }}" target="_blank">LSST Members</a> or
+            <a href="{{ settings.LINEA_REGISTER_URL }}" target="_blank">General Public</a>.
+          </p>
+        </div>
+      </div>
+      <p class="text-center mt-4 mb-0">
+        Any problem authenticating or registering?
+        <a href="mailto:helpdesk@linea.org.br" target="_blank">Contact our helpdesk</a>.
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock content %}

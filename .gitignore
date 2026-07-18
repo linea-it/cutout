@@ -295,3 +295,9 @@ data/results/debug/*
 data/results/async/*
 data/results/sync/*
 !data/results/sync/.gitkeep
+
+# SAML2 SP certificates (nunca commitar chaves/certificados)
+config/certificates/*.pem
+config/certificates/*.key
+config/certificates/*.csr
+config/certificates/*.crt

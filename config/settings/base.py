@@ -187,6 +187,7 @@ TEMPLATES = [
                 "django.template.context_processors.tz",
                 "django.contrib.messages.context_processors.messages",
                 "cutout.users.context_processors.allauth_settings",
+                "django_settings_export.settings_export",
             ],
         },
     }
@@ -278,6 +279,13 @@ LOGGING = {
             "maxBytes": 1024 * 1024 * 5,  # 5 MB
             "backupCount": 5,
         },
+        "djangosaml2": {
+            "level": LOGGING_LEVEL,
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": LOG_DIR.joinpath("djangosaml2.log"),
+            "maxBytes": 1024 * 1024 * 5,  # 5 MB
+            "backupCount": 5,
+        },
     },
     "root": {"level": LOGGING_LEVEL, "handlers": ["console"]},
     "loggers": {
@@ -294,6 +302,11 @@ LOGGING = {
         "cutout": {
             "level": LOGGING_LEVEL,
             "handlers": ["cutout", "console"],
+            "propagate": False,
+        },
+        "djangosaml2": {
+            "level": LOGGING_LEVEL,
+            "handlers": ["djangosaml2", "console"],
             "propagate": False,
         },
     },
@@ -382,3 +395,174 @@ SPECTACULAR_SETTINGS = {
 }
 # Your stuff...
 # ------------------------------------------------------------------------------
+# Autenticação Django SAML2 (djangosaml2)
+# ------------------------------------------------------------------------------
+# SAML não pode ser testado localmente. Com a flag desligada (default) nada de
+# SAML é carregado e o login continua pelo admin/allauth.
+AUTH_SAML2_ENABLED = env.bool("AUTH_SAML2_ENABLED", default=False)
+
+# URLs de login com SAML2/CILogon. Exemplo:
+# https://cutout.linea.org.br/saml2/login/?idp=https://satosa.linea.org.br/linea/proxy/aHR0cHM6Ly9jaWxvZ29uLm9yZw==
+LINEA_LOGIN_URL = env.str("LINEA_LOGIN_URL", default="/admin/login/?next=/")
+RUBIN_LOGIN_URL = env.str("RUBIN_LOGIN_URL", default="/admin/login/?next=/")
+
+# URL de registro para os diferentes IdPs.
+LINEA_REGISTER_URL = env.str(
+    "LINEA_REGISTER_URL",
+    default="https://register-dev.linea.org.br/Shibboleth.sso/Login?SAMLDS=1&target=https://register-dev.linea.org.br/registry/co_petitions/start/coef:155&entityID=https://satosa.linea.org.br/linea/proxy/aHR0cHM6Ly9jaWxvZ29uLm9yZw==",  # noqa: E501
+)
+RUBIN_REGISTER_URL = env.str(
+    "RUBIN_REGISTER_URL",
+    default="https://register-dev.linea.org.br/Shibboleth.sso/Login?SAMLDS=1&target=https://register-dev.linea.org.br/registry/co_petitions/start/coef:231&entityID=https://satosa-dev.linea.org.br/linea_saml_mirror/proxy/aHR0cHM6Ly9kYXRhLmxzc3QuY2xvdWQ=",  # noqa: E501
+)
+
+# Grupos gerenciados no Django admin que o sync de grupos SAML nunca remove.
+INTERNAL_GROUPS = env.list("INTERNAL_GROUPS", default=[])
+
+# django-settings-export: todos os nomes precisam existir com a flag on ou off.
+SETTINGS_EXPORT = [
+    "AUTH_SAML2_ENABLED",
+    "LINEA_LOGIN_URL",
+    "LINEA_REGISTER_URL",
+    "RUBIN_LOGIN_URL",
+    "RUBIN_REGISTER_URL",
+]
+
+if AUTH_SAML2_ENABLED:
+    import saml2
+
+    # FQDN — exemplo: https://cutout.linea.org.br (sem barra final)
+    SITE_URL = env.str("SITE_URL")
+    FQDN = SITE_URL
+    SAML_SP_NAME = env.str("SAML_SP_NAME", default="SP Cutout Service")
+    CERT_DIR = BASE_DIR / "config" / "certificates"
+    ATTR_DIR = BASE_DIR / "config" / "attribute-maps"
+
+    INSTALLED_APPS += ["djangosaml2"]
+    # Backend SAML2 customizado da LIneA
+    AUTHENTICATION_BACKENDS += ["cutout.users.saml2.LineaSaml2Backend"]
+    MIDDLEWARE += ["djangosaml2.middleware.SamlSessionMiddleware"]
+
+    # Tratamento customizado de falha no ACS SAML2
+    # https://djangosaml2.readthedocs.io/contents/developer.html#custom-error-handler
+    SAML_ACS_FAILURE_RESPONSE_FUNCTION = "cutout.users.views.saml2_template_failure"
+    # Configurações do cookie de sessão
+    SAML_SESSION_COOKIE_NAME = "saml_session"
+    SESSION_COOKIE_SECURE = True
+
+    # Qualquer view que exige usuário autenticado redireciona o navegador para esta URL
+    LOGIN_URL = "/login/"
+
+    # Encerra a sessão quando o usuário fecha o navegador
+    SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+
+    # Tipo de binding utilizado
+    SAML_DEFAULT_BINDING = saml2.BINDING_HTTP_POST
+    SAML_IGNORE_LOGOUT_ERRORS = True
+
+    # Cria usuário Django a partir da asserção SAML se ainda não existir
+    SAML_CREATE_UNKNOWN_USER = True
+
+    # https://djangosaml2.readthedocs.io/contents/security.html#content-security-policy
+    SAML_CSP_HANDLER = ""
+
+    # LOGIN_REDIRECT_URL permanece "users:redirect" (djangosaml2 resolve URL nomeada)
+
+    SAML_ATTRIBUTE_MAPPING = {
+        "eduPersonUniqueId": ("username",),
+        "cn": ("first_name",),
+        "sn": ("last_name",),
+        "email": ("email",),
+    }
+
+    SAML_CONFIG = {
+        # Biblioteca usada para assinatura e criptografia
+        "xmlsec_binary": "/usr/bin/xmlsec1",
+        "entityid": FQDN + "/saml2/metadata/",
+        # Diretório contendo os esquemas de mapeamento de atributo
+        "attribute_map_dir": str(ATTR_DIR),
+        "description": SAML_SP_NAME,
+        "service": {
+            "sp": {
+                "name": SAML_SP_NAME,
+                "ui_info": {
+                    "display_name": {"text": SAML_SP_NAME, "lang": "en"},
+                    "description": {"text": SAML_SP_NAME, "lang": "en"},
+                    "information_url": {"text": FQDN, "lang": "en"},
+                    "privacy_statement_url": {"text": FQDN, "lang": "en"},
+                },
+                "name_id_format": [
+                    "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
+                    "urn:oasis:names:tc:SAML:2.0:nameid-format:transient",
+                ],
+                # Indica os endpoints dos serviços fornecidos
+                "endpoints": {
+                    "assertion_consumer_service": [
+                        (FQDN + "/saml2/acs/", saml2.BINDING_HTTP_POST),
+                    ],
+                    "single_logout_service": [
+                        (FQDN + "/saml2/ls/", saml2.BINDING_HTTP_REDIRECT),
+                        (FQDN + "/saml2/ls/post", saml2.BINDING_HTTP_POST),
+                    ],
+                },
+                "force_authn": False,
+                "name_id_format_allow_create": False,
+                # Indica que as respostas de autenticação para este SP devem ser assinadas
+                "want_response_signed": True,
+                # Indica se as solicitações de autenticação enviadas por este SP devem ser assinadas
+                "authn_requests_signed": True,
+                # Indica se este SP deseja que o IdP envie as asserções assinadas
+                "want_assertions_signed": False,
+                "only_use_keys_in_metadata": True,
+                "allow_unsolicited": False,
+            },
+        },
+        # Indica onde os metadados podem ser encontrados
+        "metadata": {
+            "remote": [
+                {
+                    "url": "https://www.linea.org.br/static/metadata/satosa-prod-frontend-cilogon.xml",
+                    "cert": None,
+                },
+                {
+                    "url": "https://www.linea.org.br/static/metadata/satosa-prod-frontend-rubin.xml",
+                    "cert": None,
+                },
+                {
+                    "url": "https://www.linea.org.br/static/metadata/satosa-dev-frontend-cilogon.xml",
+                    "cert": None,
+                },
+                {
+                    "url": "https://www.linea.org.br/static/metadata/satosa-dev-frontend-rubin.xml",
+                    "cert": None,
+                },
+            ],
+        },
+        # 1 = mais informações de depuração
+        "debug": 1,
+        # Assinatura
+        "key_file": str(CERT_DIR / "mykey.pem"),  # chave privada
+        "cert_file": str(CERT_DIR / "mycert.pem"),  # certificado público
+        # Criptografia
+        "encryption_keypairs": [
+            {
+                "key_file": str(CERT_DIR / "mykey.pem"),  # chave privada
+                "cert_file": str(CERT_DIR / "mycert.pem"),  # certificado público
+            }
+        ],
+        "contact_person": [
+            {
+                "given_name": "Service",
+                "sur_name": "Desk",
+                "company": "LIneA",
+                "email_address": "helpdesk@linea.org.br",
+                "contact_type": "technical",
+            },
+        ],
+        # Descreve a organização responsável pelo serviço
+        "organization": {
+            "name": [("LIneA", "pt-br")],
+            "display_name": [("LIneA", "pt-br")],
+            "url": [("https://www.linea.org.br", "pt-br")],
+        },
+    }

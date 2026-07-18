@@ -62,6 +62,8 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
   gettext \
   # funpack/cfitsio for unpack fits files https://heasarc.gsfc.nasa.gov/fitsio/fitsio.html
   libcfitsio-bin \
+  # xmlsec1 binary required by pysaml2/djangosaml2
+  xmlsec1 \
   # cleaning up unused files
   && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
   && rm -rf /var/lib/apt/lists/*
