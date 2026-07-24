@@ -144,3 +144,18 @@ Requisitos adicionais com a flag ligada:
 - O metadata do SP (`https://<SITE_URL>/saml2/metadata/`) deve ser registrado junto à equipe SATOSA/LIneA
   (reenviar sempre que o certificado mudar).
 - O binário `xmlsec1` já é instalado nas imagens Docker (requisito do pysaml2).
+
+
+### Build Manual da Imagem docker
+
+Estando logado no dockerhub pelo terminal execute o build e o push da imagem do daiquiri.
+
+Docker Hub: <https://hub.docker.com/repository/docker/linea/cutout/>
+
+A identificação unica de cada imagem pode ser o numero de versão exemplo: `linea/cutout:v0.1` ou o hash do commit para versões de desenvolvimento: `linea/cutout:8816330`.
+
+>Para obter o hash do commit usar o comando `$(git describe --always)`
+
+```bash
+docker build -f compose/production/django/Dockerfile -t linea/cutout:$(git describe --always) .
+```
