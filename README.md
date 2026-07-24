@@ -116,3 +116,46 @@ The following details how to deploy this application.
 ### Docker
 
 See detailed [cookiecutter-django Docker documentation](http://cookiecutter-django.readthedocs.io/en/latest/deployment-with-docker.html).
+
+### SAML2 Federated Authentication (djangosaml2)
+
+Autenticação federada LIneA (proxy SATOSA → CILogon e Rubin), mesma solução usada no `lsp_daiquiri` e no `target`.
+
+SAML **não pode ser testado localmente**. O comportamento é controlado pela variável `AUTH_SAML2_ENABLED`
+(default `False`): desligada, nada de SAML é carregado e o login é pelo admin/allauth; ligada, o backend
+`cutout.users.saml2.LineaSaml2Backend` é adicionado, as rotas `saml2/` e `/login/` (seletor de IdP) são
+montadas e `LOGIN_URL` passa a ser `/login/`.
+
+Variáveis de ambiente para produção (`.envs/.production/.django`):
+
+- `AUTH_SAML2_ENABLED=True`
+- `SITE_URL=https://cutout.linea.org.br` (FQDN do SP, sem barra final)
+- `SAML_SP_NAME` (default `SP Cutout Service`)
+- `LINEA_LOGIN_URL` — ex.: `https://<host>/saml2/login/?idp=https://satosa.linea.org.br/linea/proxy/aHR0cHM6Ly9jaWxvZ29uLm9yZw==`
+- `RUBIN_LOGIN_URL` — variante para o frontend Rubin do SATOSA
+- `LINEA_REGISTER_URL` / `RUBIN_REGISTER_URL` — URLs de registro no COmanage
+- `INTERNAL_GROUPS` — lista (separada por vírgula) de grupos do Django admin que o sync SAML nunca remove
+
+Requisitos adicionais com a flag ligada:
+
+- Certificados do SP em `config/certificates/` (`mykey.pem`/`mycert.pem`) — ver `config/certificates/README.md`;
+  em produção o diretório é montado como volume (`production.yml`). Ligar a flag exige HTTPS
+  (`SESSION_COOKIE_SECURE=True`).
+- O metadata do SP (`https://<SITE_URL>/saml2/metadata/`) deve ser registrado junto à equipe SATOSA/LIneA
+  (reenviar sempre que o certificado mudar).
+- O binário `xmlsec1` já é instalado nas imagens Docker (requisito do pysaml2).
+
+
+### Build Manual da Imagem docker
+
+Estando logado no dockerhub pelo terminal execute o build e o push da imagem do daiquiri.
+
+Docker Hub: <https://hub.docker.com/repository/docker/linea/cutout/>
+
+A identificação unica de cada imagem pode ser o numero de versão exemplo: `linea/cutout:v0.1` ou o hash do commit para versões de desenvolvimento: `linea/cutout:8816330`.
+
+>Para obter o hash do commit usar o comando `$(git describe --always)`
+
+```bash
+docker build -f compose/production/django/Dockerfile -t linea/cutout:$(git describe --always) .
+```

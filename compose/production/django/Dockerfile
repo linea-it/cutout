@@ -1,9 +1,9 @@
 
 # define an alias for the specific python version used in this file.
-FROM python:3.11.4-slim-bullseye as python
+FROM python:3.11.4-slim-bullseye AS python
 
 # Python build stage
-FROM python as python-build-stage
+FROM python AS python-build-stage
 
 ARG BUILD_ENVIRONMENT=production
 
@@ -23,14 +23,21 @@ RUN pip wheel --wheel-dir /usr/src/app/wheels  \
 
 
 # Python 'run' stage
-FROM python as python-run-stage
+FROM python AS python-run-stage
 
 ARG BUILD_ENVIRONMENT=production
 ARG APP_HOME=/app
 
-ENV PYTHONUNBUFFERED 1
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV BUILD_ENV ${BUILD_ENVIRONMENT}
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV BUILD_ENV=${BUILD_ENVIRONMENT}
+ENV DJANGO_SETTINGS_MODULE=config.settings.production
+ENV LOG_DIR=/logs
+
+ENV GUNICORN_RELOAD=0
+ENV GUNICORN_WORKERS=2
+ENV GUNICORN_THREADS=2
 
 WORKDIR ${APP_HOME}
 
@@ -46,6 +53,8 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
   gettext \
   # funpack/cfitsio for unpack fits files https://heasarc.gsfc.nasa.gov/fitsio/fitsio.html
   libcfitsio-bin \
+  # xmlsec1 binary required by pysaml2/djangosaml2
+  xmlsec1 \
   # cleaning up unused files
   && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
   && rm -rf /var/lib/apt/lists/*
@@ -86,7 +95,14 @@ RUN chmod +x /start-flower
 COPY --chown=django:django . ${APP_HOME}
 
 # make django owner of the WORKDIR directory as well.
-RUN chown django:django ${APP_HOME}
+RUN chown django:django ${APP_HOME} \
+  && mkdir -p ${LOG_DIR} \
+  && chown -R django:django ${LOG_DIR} \
+  && chmod -R g+w ${LOG_DIR} \
+  && mkdir -p /data \
+  && chown -R django:django /data \
+  && chmod -R g+w /data
+
 
 USER django
 

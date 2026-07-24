@@ -1,0 +1,15 @@
+{% extends "djangosaml2/base_error.html" %}
+
+{% block title %}LIneA Resources for Vera Rubin Users{% endblock title %}
+
+{% block content %}
+<p class="text" style="margin-top: 0;">
+    To utilize LIneA resources, all users are required to have a LIneA account associated with their
+    Rubin credentials. If you are a new user, please <a href="{{ settings.RUBIN_REGISTER_URL }}">register
+        here</a> to create your account and link your credentials.
+</p>
+<p class="text" style="margin-top: 0;">
+    All new registrations are subject to an approval process which takes place during business hours and
+    may require up to one business day.
+</p>
+{% endblock content %}

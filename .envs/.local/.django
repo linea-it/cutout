@@ -20,3 +20,8 @@ CELERY_FLOWER_PASSWORD=vvEHorf3cBVSss0jQXSwndS0KwWu6YQ0y9RVKui0cqbnmZ0HudfWxUH6c
 # ------------------------------------------------------------------------------
 # DATABASE_URL=postgres://user:pass@localhost/dbname
 DATABASE_URL=postgres://postgres:postgres@postgres/cutout
+
+# SAML2
+# ------------------------------------------------------------------------------
+# SAML não pode ser testado localmente; com False o login é pelo admin/allauth.
+AUTH_SAML2_ENABLED=False

@@ -5,25 +5,28 @@ set -o pipefail
 set -o nounset
 
 
-python /app/manage.py collectstatic --noinput
+YELLOW='\033[00;33m'
+GREEN="\[\033[0;32m\]"
+NO_COLOR='\033[0m'
 
-compress_enabled() {
-python << END
-import sys
+echo "Running Migrate to apply changes in database"
+python manage.py migrate
 
-from environ import Env
+echo "Running Collect Statics"
+python manage.py collectstatic --clear --noinput --verbosity 0
 
-env = Env(COMPRESS_ENABLED=(bool, True))
-if env('COMPRESS_ENABLED'):
-    sys.exit(0)
-else:
-    sys.exit(1)
+echo "${YELLOW}Running Django with Gunicorn.${NO_COLOR}"
+GUNICORN_CMD="gunicorn config.wsgi:application \
+    --bind 0.0.0.0:8000 \
+    --workers ${GUNICORN_WORKERS:-2} \
+    --threads ${GUNICORN_THREADS:-2} \
+    --timeout 180"
 
-END
-}
-
-if compress_enabled; then
-  # NOTE this command will fail if django-compressor is disabled
-  python /app/manage.py compress
+# Adiciona --reload se GUNICORN_RELOAD for true/1/True
+if [ "${GUNICORN_RELOAD}" = "1" ] || [ "${GUNICORN_RELOAD}" = "true" ] || [ "${GUNICORN_RELOAD}" = "True" ]; then
+    GUNICORN_CMD="$GUNICORN_CMD --reload"
 fi
-exec /usr/local/bin/gunicorn config.asgi --bind 0.0.0.0:5000 --chdir=/app -k uvicorn.workers.UvicornWorker
+
+echo "${YELLOW}Gunicorn Command: ${GUNICORN_CMD}${NO_COLOR}"
+
+eval $GUNICORN_CMD
