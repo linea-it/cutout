@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from cutout.service.tasks import _validate_input_files
+from cutout.service.cutout_runner import _validate_input_files
 
 
 def test_validate_input_files_accepts_none() -> None:

@@ -37,14 +37,14 @@ Duvidas:
 - [X] Endpoint Sync para cutouts DES POS Circle Fits.
 - [X] Cutout Sync em background com Celery.
 - [x] Endpoint Sync para cutouts DES POS Circle Png com `engine=astrocut` (corrigido naming de saida).
-- [] Endpoint Sync para cutouts DES POS Polygon Jpg.
-- [] função para Cutout DES usando Range de posições.
-- [] função para Cutout DES usando Poligono.
-- [] Registrar a criação do cutout sync na listas de job do usuario???
-- [] PNGs só tem opção de gerar imagens coloridas, usando gri. (Acredito que de para ter mais opções, png para uma banda só ou outras combinações.)
+- [x] Endpoint Sync para cutouts DES POS Polygon Jpg.
+- [x] função para Cutout DES usando Range de posições.
+- [x] função para Cutout DES usando Poligono.
+- [x] Registrar a criação do cutout sync na listas de job do usuario???
+- [x] PNGs só tem opção de gerar imagens coloridas, usando gri. (Acredito que de para ter mais opções, png para uma banda só ou outras combinações.)
 - [] Fluxo sync `engine=legacy` + `format=png` ainda com falha (investigar stack completa e cobrir com teste de regressao).
 - [] Criar exemplos de uso da api no Jupyter Notebook.
-- [] Remover o metodo "legacy" (código do adriano) e deixar apenas o astrocut???
+- [x] Remover o metodo "legacy" (código do adriano) e deixar apenas o astrocut???
 
 ## Cutout Sync LSST
 
@@ -55,15 +55,15 @@ Duvidas:
 
 ## Cutout Async DES
 
-- [] Submeter lista de coordenadas para processamento em background com celery.
+- [x] Submeter lista de coordenadas para processamento em background com celery.
 - [] Email com informação do job asyncrono. (opcional)
 - [] Definir Limit qtd/tamanho de Cutouts
 
 ## Monitoramento dos Jobs
 
-- [] Regitrar no banco de dados cada cutout criado pelo usuario. (Incluir Cutouts Sync?)
+- [x] Regitrar no banco de dados cada cutout criado pelo usuario. (Incluir Cutouts Sync?)
 - [] Interface com a lista de Jobs
-- [] Download dos resultados do job.
+- [x] Download dos resultados do job.
 - [] Cancelar/Deletar um Job.
 - [] Mostrar uso da quota?
 - [] Limite de Jobs?

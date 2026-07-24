@@ -28,7 +28,7 @@ urlpatterns = router.urls
 
 urlpatterns += [
     path("cutout", CutoutView.as_view(), name="cutout"),
-    path("sync", SyncCutoutView.as_view(), name="sync_cutout"),
+    path("sync", transaction.non_atomic_requests(SyncCutoutView.as_view()), name="sync_cutout"),
     path("async", transaction.non_atomic_requests(AsyncCutoutView.as_view()), name="async_cutout"),
     path("async/<int:job_id>", AsyncJobDetailView.as_view(), name="async_job_detail"),
     path("async/<int:job_id>/phase", AsyncJobPhaseView.as_view(), name="async_job_phase"),

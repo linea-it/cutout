@@ -8,15 +8,13 @@ import logging
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import List
 
 from celery import chord as celery_chord
 
 from cutout.service.cutout_parameters import CutoutParameters
-from cutout.service.discovery import DesCsvFileLocator
 from cutout.service.models import Task as SQLTask
 from cutout.service.policies import DesPublicAccessPolicy
-from cutout.service.tasks import finalize_job, image_cutout, run_cutout_for_pos
+from cutout.service.tasks import finalize_job, perform_cutout_task
 from cutout.service.uws.exceptions import MultiValuedParameterError, ParameterError, PermissionDeniedError
 from cutout.service.uws.models import Job, JobParameter
 from cutout.service.uws.policy import UWSPolicy
@@ -49,7 +47,6 @@ class ImageCutoutPolicy(UWSPolicy):
     #     self._logger = logger
     def __init__(self) -> None:
         self._survey_access_policy = DesPublicAccessPolicy()
-        self._file_locator = DesCsvFileLocator()
 
     def _safe_token(self, value: str) -> str:
         """Normalize token for filesystem-safe filenames."""
@@ -67,133 +64,12 @@ class ImageCutoutPolicy(UWSPolicy):
 
         return Path("/data/results").joinpath(filename)
 
-    def _build_async_result_path(self, job: Job, task_params: dict, sequence: int) -> Path:
+    def _build_task_result_path(self, job: Job, task_params: dict, sequence: int, execution_mode: str) -> Path:
         base_path = self._build_result_path(job, task_params)
         filename = f"{base_path.stem}_{sequence}{base_path.suffix or '.fits'}"
-        return Path("/data/results/async").joinpath(filename)
+        return Path("/data/results").joinpath(execution_mode, filename)
 
-    def dispatch(self, job: Job):
-        """Dispatch a cutout request to the backend.
-
-        Parameters
-        ----------
-        job
-            The submitted job description.
-
-        Returns
-        -------
-        dramatiq.Message
-            The dispatched message to the backend.
-
-        Notes
-        -----
-        Currently, only one dataset ID and only one stencil are supported.
-        This limitation is expected to be relaxed in a later version.
-        """
-        print(f"[dispatch] job_id={job.job_id} dispatching to backend")
-        cutout_params = CutoutParameters.from_job_parameters(job.parameters)
-        print(f"[dispatch] cutout_params: {cutout_params}")
-
-        print(f"[dispatch] calling convert_to_list_of_task_params with cutout_params: {cutout_params}")
-        tasks_params = self.convert_to_list_of_task_params(cutout_params)
-        print(f"[dispatch] tasks_params: {tasks_params}")
-
-        # Celery tasks signature
-        tasks = []
-
-        for t in tasks_params:
-            print(f"[dispatch] checking survey access for user_id={job.owner} survey_id={t['id']}")
-            if not self._survey_access_policy.can_request_cutout(user_id=job.owner, survey_id=t["id"]):
-                raise PermissionDeniedError(f"User has no access to survey {t['id']}")
-
-            print(f"[dispatch] building result path for job_id={job.job_id} task_params={t}")
-            resultfile = self._build_result_path(job, t)
-            print(f"[dispatch] resultfile path: {resultfile}")
-
-            # If color composition requested, collect files per RGB band
-            if t.get("color"):
-                print(f"[dispatch] color composition requested, parsing rgb_bands for task_params={t}")
-
-                # parse rgb_bands: accept 'gri', 'g,r,i' or 'g r i'
-                raw = t.get("rgb_bands", "gri")
-                if "," in raw:
-                    bands = [b.strip() for b in raw.split(",") if b.strip()]
-                elif " " in raw:
-                    bands = [b.strip() for b in raw.split() if b.strip()]
-                else:
-                    bands = list(raw)
-
-                files_map = {}
-                for b in bands:
-                    files_b = self._file_locator.find_files(survey_id=t["id"], stencil=t["stencil_obj"], band=b)
-                    if not files_b:
-                        raise ParameterError(f"No files found for band {b} in the requested region")
-                    # keep only paths that exist on the current filesystem
-                    candidate_paths = [str(f.file_path) for f in files_b if f.file_path]
-                    existing = [p for p in candidate_paths if Path(p).exists()]
-                    if not existing:
-                        raise ParameterError(f"No available files on disk for band {b} in the requested region")
-                    files_map[b] = existing
-
-                # Debug logging: show files_map and existence
-                print(f"[policy] dispatch: files_map for bands={bands}: {files_map}")
-                for band_name, paths in files_map.items():
-                    for p in paths:
-                        print(f"[policy] file check: band={band_name} path={p} exists=True")
-
-                tasks.append(
-                    image_cutout.s(
-                        job_id=job.job_id,
-                        source_id=t["id"],
-                        stencil=t["stencil"],
-                        files=files_map,
-                        engine=t["engine"],
-                        band=t["band"],
-                        format=t["format"],
-                        path=str(resultfile),
-                        color=t.get("color", False),
-                        rgb_bands=t.get("rgb_bands"),
-                        persist=t.get("persist", False),
-                    )
-                )
-            else:
-                print(
-                    f"[dispatch] single band requested, finding files for survey_id={t['id']} stencil={t['stencil_obj']} band={t['band']}"
-                )
-
-                files = self._file_locator.find_files(survey_id=t["id"], stencil=t["stencil_obj"], band=t["band"])
-                print(
-                    f"[policy] dispatch: found {len(files)} files for survey_id={t['id']} stencil={t['stencil_obj']} band={t['band']}"
-                )
-
-                if not files:
-                    raise ParameterError("No files found for the requested region")
-                candidate = [str(f.file_path) for f in files if f.file_path]
-                existing = [p for p in candidate if Path(p).exists()]
-                if not existing:
-                    raise ParameterError("No available files on disk for the requested region")
-                tasks.append(
-                    image_cutout.s(
-                        job_id=job.job_id,
-                        source_id=t["id"],
-                        stencil=t["stencil"],
-                        files=existing,
-                        engine=t["engine"],
-                        band=t["band"],
-                        format=t["format"],
-                        path=str(resultfile),
-                        color=False,
-                        rgb_bands=t.get("rgb_bands"),
-                        persist=t.get("persist", False),
-                    )
-                )
-
-        if len(tasks) == 1:
-            return tasks[0].apply_async()
-
-        raise ParameterError("Only one cutout task is supported in sync mode")
-
-    def create_tasks_for_job(self, job: Job, params: list[JobParameter]) -> list:
+    def create_tasks_for_job(self, job: Job, params: list[JobParameter], execution_mode: str = "async") -> list:
         """Create one Task row per cutout execution unit (stencil × band × format × engine)."""
         cutout_params = CutoutParameters.from_job_parameters(params)
         task_dicts = self.convert_to_list_of_task_params(cutout_params)
@@ -201,7 +77,7 @@ class ImageCutoutPolicy(UWSPolicy):
         for sequence, t in enumerate(task_dicts, start=1):
             if not self._survey_access_policy.can_request_cutout(user_id=job.owner, survey_id=t["id"]):
                 raise PermissionDeniedError(f"User has no access to survey {t['id']}")
-            output_path = str(self._build_async_result_path(job, t, sequence))
+            output_path = str(self._build_task_result_path(job, t, sequence, execution_mode))
             stencil_obj = t["stencil_obj"]
             stencil_dict = stencil_obj.to_dict()
             task = SQLTask.objects.create(
@@ -226,7 +102,7 @@ class ImageCutoutPolicy(UWSPolicy):
         logger.info("[dispatch_async] job_id=%s message_id=%s", job.job_id, message_id)
 
         db_tasks = list(SQLTask.objects.filter(job_id=int(job.job_id)).order_by("sequence"))
-        cutout_sigs = [run_cutout_for_pos.s(job_id=job.job_id, task_id=str(task.id)) for task in db_tasks]
+        cutout_sigs = [perform_cutout_task.s(job_id=job.job_id, task_id=str(task.id)) for task in db_tasks]
         result = celery_chord(cutout_sigs)(finalize_job.s(job_id=job.job_id).set(task_id=message_id))
         logger.info("[dispatch_async] chord dispatched: %d task(s), callback_id=%s", len(cutout_sigs), message_id)
         return result

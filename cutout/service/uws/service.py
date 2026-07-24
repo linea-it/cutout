@@ -1,6 +1,5 @@
 import logging
 from pathlib import Path
-from typing import List, Optional
 
 from celery import uuid
 from django.db import transaction
@@ -19,11 +18,19 @@ class JobService:
         # TODO: Setup Settings, Logging
         self._policy = ImageCutoutPolicy()
 
-    def create(self, user: User, params: list[JobParameter], run_id: str | None = None) -> Job:
-        """Create a pending job.
+    def create(
+        self,
+        user: User,
+        params: list[JobParameter],
+        run_id: str | None = None,
+        execution_mode: str = "async",
+    ) -> Job:
+        """Create a pending job with its Task rows.
 
-        This does not start execution of the job.  That must be done
-        separately with `start`."""
+        This does not start execution of the job.  Async jobs are started
+        separately with `start_async`; sync jobs execute their task directly
+        with `perform_cutout`.  `execution_mode` ("sync" or "async") selects
+        the results directory for the generated files."""
         self._policy.validate_params(params)
 
         job = Job(
@@ -35,7 +42,7 @@ class JobService:
         for p in params:
             job.parameters.create(parameter=p.parameter_id, value=p.value, is_post=p.is_post)
 
-        self._policy.create_tasks_for_job(_convert_job(job), params)
+        self._policy.create_tasks_for_job(_convert_job(job), params, execution_mode=execution_mode)
 
         return job
 
@@ -48,25 +55,8 @@ class JobService:
             raise PermissionDeniedError(f"Access to job {job_id} denied")
         return job
 
-    def start(self, user: User, job_id: int):
-        """Start execution of a job."""
-        print(f"[JobService.start] called with user={user} job_id={job_id}")
-        sqljob = self.get_for_user(user, job_id)
-        if sqljob.phase not in (Job.ExecutionPhase.PENDING, Job.ExecutionPhase.HELD):
-            raise InvalidPhaseError("Cannot start job in phase {job.phase}")
-
-        print(f"[JobService.start] sqljob.phase={sqljob.phase}")
-        job = _convert_job(sqljob)
-        print(f"[JobService.start] calling policy.dispatch with job_id={job.job_id}")
-        message = self._policy.dispatch(job)
-        print(f"[JobService.start] policy.dispatch returned: {message}")
-
-        # TODO: Marcar o job como QUEUED
-        self.mark_queued(job_id, message.id)
-        return message
-
     def start_async(self, user: User, job_id: int):
-        """Start async execution using the fake worker pipeline."""
+        """Dispatch the job's tasks to the Celery workers."""
         logger = logging.getLogger("cutout")
 
         logger.info(f"[JobService.start_async] called with user={user} job_id={job_id}")
@@ -78,12 +68,16 @@ class JobService:
             raise InvalidPhaseError(f"Cannot start job in phase {sqljob.phase}")
 
         job = _convert_job(sqljob)
+
         message_id = uuid()
+
         logger.info(f"[JobService.start_async] mark_queued with message_id={message_id}")
         self.mark_queued(job_id, message_id)
+
         logger.info(
             f"[JobService.start_async] calling policy.dispatch_async with job_id={job.job_id} message_id={message_id}"
         )
+
         message = self._policy.dispatch_async(job, message_id=message_id)
         logger.info(f"[JobService.start_async] policy.dispatch_async returned: {message}")
         return message
@@ -96,12 +90,6 @@ class JobService:
         if job.phase in (Job.ExecutionPhase.PENDING, Job.ExecutionPhase.HELD):
             job.phase = Job.ExecutionPhase.QUEUED
 
-        job.save()
-
-    def mark_executing(self, job_id: int) -> None:
-        job = Job.objects.get(pk=job_id)
-        job.phase = Job.ExecutionPhase.EXECUTING
-        job.start_time = timezone.now()
         job.save()
 
     def mark_completed(self, job_id: int) -> None:
