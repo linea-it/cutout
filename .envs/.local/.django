@@ -25,3 +25,10 @@ DATABASE_URL=postgres://postgres:postgres@postgres/cutout
 # ------------------------------------------------------------------------------
 # SAML não pode ser testado localmente; com False o login é pelo admin/allauth.
 AUTH_SAML2_ENABLED=False
+
+# AppBar
+# ------------------------------------------------------------------------------
+# Links externos do AppBar. Descomente para sobrescrever os defaults.
+# NAVBAR_IDAC_URL=https://scienceplatform.linea.org.br/idac
+# NAVBAR_DATA_URL=https://data.linea.org.br/
+# NAVBAR_DOCS_URL=https://docs.linea.org.br/

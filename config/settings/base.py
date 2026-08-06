@@ -419,6 +419,13 @@ RUBIN_REGISTER_URL = env.str(
 # Grupos gerenciados no Django admin que o sync de grupos SAML nunca remove.
 INTERNAL_GROUPS = env.list("INTERNAL_GROUPS", default=[])
 
+# ------------------------------------------------------------------------------
+# AppBar — links externos configuráveis por ambiente (dev/staging/prod).
+# ------------------------------------------------------------------------------
+NAVBAR_IDAC_URL = env.str("NAVBAR_IDAC_URL", default="https://scienceplatform-dev.linea.org.br/idac")
+NAVBAR_DATA_URL = env.str("NAVBAR_DATA_URL", default="https://data.linea.org.br/")
+NAVBAR_DOCS_URL = env.str("NAVBAR_DOCS_URL", default="https://docs.linea.org.br/")
+
 # django-settings-export: todos os nomes precisam existir com a flag on ou off.
 SETTINGS_EXPORT = [
     "AUTH_SAML2_ENABLED",
@@ -426,6 +433,9 @@ SETTINGS_EXPORT = [
     "LINEA_REGISTER_URL",
     "RUBIN_LOGIN_URL",
     "RUBIN_REGISTER_URL",
+    "NAVBAR_IDAC_URL",
+    "NAVBAR_DATA_URL",
+    "NAVBAR_DOCS_URL",
 ]
 
 if AUTH_SAML2_ENABLED:
