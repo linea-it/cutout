@@ -5,7 +5,7 @@ body {
 }
 
 .appbar-gradient {
-  background: linear-gradient(120deg, #31297f, #0989cb);
+  background: linear-gradient(120deg, #0989cb, #31297f);
   min-height: 64px;
 }
 
