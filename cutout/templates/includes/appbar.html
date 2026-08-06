@@ -1,0 +1,66 @@
+{% load static i18n %}
+<nav class="navbar navbar-expand-md navbar-dark appbar-gradient fixed-top">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="{% url 'home' %}">
+      <img src="{% static 'images/linea-symbol.svg' %}" alt="LIneA" class="appbar-logo" />
+    </a>
+    <button class="navbar-toggler"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#appbarNavContent"
+            aria-controls="appbarNavContent"
+            aria-expanded="false"
+            aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="appbarNavContent">
+      <ul class="navbar-nav me-auto mb-2 mb-md-0">
+        <li class="nav-item">
+          <a class="nav-link" href="{% url 'home' %}">{% translate "Home" %}</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="{% url 'about' %}">{% translate "About" %}</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="{% url 'contact' %}">{% translate "Contact" %}</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="{{ settings.NAVBAR_IDAC_URL }}" target="_blank" rel="noreferrer">IDAC</a>
+        </li>
+      </ul>
+      <div class="d-flex align-items-center appbar-actions">
+        <a class="btn btn-outline-light btn-sm text-uppercase fw-bold appbar-btn"
+           href="{{ settings.NAVBAR_DATA_URL }}"
+           target="_blank"
+           rel="noreferrer">{% translate "Data" %}</a>
+        <a class="btn btn-outline-light btn-sm text-uppercase fw-bold appbar-btn"
+           href="{{ settings.NAVBAR_DOCS_URL }}"
+           target="_blank"
+           rel="noreferrer">{% translate "Docs" %}</a>
+        {% if request.user.is_authenticated %}
+          <div class="dropdown appbar-user">
+            <a class="nav-link dropdown-toggle text-uppercase fw-bold"
+               href="#"
+               id="appbarUserMenu"
+               role="button"
+               data-bs-toggle="dropdown"
+               aria-expanded="false">{{ request.user.username }}</a>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="appbarUserMenu">
+              <li>
+                <a class="dropdown-item" href="{% url 'users:detail' request.user.username %}">{% translate "My Profile" %}</a>
+              </li>
+              <li>
+                <a class="dropdown-item" href="{% url 'account_logout' %}">{% translate "Sign Out" %}</a>
+              </li>
+            </ul>
+          </div>
+        {% else %}
+          {% if ACCOUNT_ALLOW_REGISTRATION %}
+            <a id="sign-up-link" class="nav-link" href="{% url 'account_signup' %}">{% translate "Sign Up" %}</a>
+          {% endif %}
+          <a id="log-in-link" class="btn btn-outline-light btn-sm" href="{% url 'account_login' %}">{% translate "Sign In" %}</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</nav>

@@ -1,1 +1,49 @@
 {% extends "base.html" %}
+
+{% load i18n %}
+
+{% block title %}About{% endblock title %}
+
+{% block content %}
+  <div class="row mt-4">
+    <div class="col-12">
+      <h6 class="fw-bold">About</h6>
+      <p>
+        The LIneA Science Platform is a collection of web-based services that offer data access and
+        analysis tools for the astronomical community. The Cutout Service is one of these tools,
+        allowing users to request image cutouts from astronomical surveys.
+      </p>
+      <p>
+        The platform offers storage space, computing power, and help from specialists to support the
+        <a href="https://linea.org.br/010-ciencia/projetos/4-lsst/brasil-na-era-do-lsst/"
+           target="_blank"
+           rel="noreferrer">LSST Brazilian Participation Group</a> (BPG) with the big data challenges
+        imposed by LSST.
+      </p>
+      <p>
+        For the general public, it provides analysis tools and access to public data from previous
+        astronomical surveys such as the
+        <a href="http://www.darkenergysurvey.org" target="_blank" rel="noreferrer">Dark Energy Survey</a>
+        (DES) and the
+        <a href="http://www.sdss.org" target="_blank" rel="noreferrer">Sloan Sky Digital Survey</a>
+        (SDSS) (institutional or Google account required). It will also provide access to LSST public
+        data releases when they become available in the future.
+      </p>
+
+      <h6 class="fw-bold mt-4">About us</h6>
+      <p>
+        LIneA is a multi-user laboratory operated by a non-profit organization with financial support
+        from the Brazilian Ministry of Science, Technology, and Innovation. Our mission is to support
+        the Brazilian astronomical community with computing infrastructure and big data analysis
+        expertise to provide technical conditions for participation in large astronomical surveys, such
+        as SDSS, DES, and LSST.
+      </p>
+      <p>
+        If you are a Portuguese speaker, please find more about LIneA on our
+        <a href="https://youtu.be/jC-k85tfd0Y" target="_blank" rel="noreferrer">YouTube Channel</a>
+        and
+        <a href="http://linea.org.br" target="_blank" rel="noreferrer">Website</a>.
+      </p>
+    </div>
+  </div>
+{% endblock content %}
