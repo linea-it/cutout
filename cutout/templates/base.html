@@ -27,6 +27,7 @@
       {% compress css %}
         <link href="{% static 'css/project.css' %}" rel="stylesheet" />
         <link href="{% static 'css/appbar.css' %}" rel="stylesheet" />
+        <link href="{% static 'css/footer.css' %}" rel="stylesheet" />
       {% endcompress %}
     {% endblock css %}
     <!-- Le javascript
@@ -65,6 +66,8 @@
       {% endblock content %}
     </div>
     <!-- /container -->
+    {% block footer %}
+    {% endblock footer %}
     {% block modal %}
     {% endblock modal %}
     {% block inline_javascript %}
