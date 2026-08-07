@@ -65,7 +65,7 @@ def test_async_create_runs_job_and_persists_result(user, settings, monkeypatch, 
         reverse("api:async_cutout"),
         data={
             "id": "des_dr2",
-            "pos": "CIRCLE 10 0 1",
+            "pos": "CIRCLE 10 0 0.083333",
             "band": "g",
             "format": "fits",
         },
@@ -103,7 +103,7 @@ def test_async_phase_run_starts_pending_job(user, settings, monkeypatch, tmp_pat
         user=user,
         params=[
             JobParameter(parameter_id="id", value="des_dr2"),
-            JobParameter(parameter_id="pos", value="CIRCLE 10 0 1"),
+            JobParameter(parameter_id="pos", value="CIRCLE 10 0 0.083333"),
             JobParameter(parameter_id="band", value="g"),
             JobParameter(parameter_id="format", value="fits"),
         ],
@@ -122,7 +122,7 @@ def test_async_job_detail_enforces_owner(user):
         user=user,
         params=[
             JobParameter(parameter_id="id", value="des_dr2"),
-            JobParameter(parameter_id="pos", value="CIRCLE 10 0 1"),
+            JobParameter(parameter_id="pos", value="CIRCLE 10 0 0.083333"),
             JobParameter(parameter_id="band", value="g"),
             JobParameter(parameter_id="format", value="fits"),
         ],
@@ -136,6 +136,29 @@ def test_async_job_detail_enforces_owner(user):
     assert response.status_code == 403
 
 
+def test_async_rejects_radius_above_30_arcmin(user, monkeypatch, tmp_path):
+    """Async endpoint also rejects radii >= 30 arcmin."""
+    _patch_async_result_path(monkeypatch, tmp_path)
+    _patch_cutout_execution(monkeypatch, tmp_path)
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    response = client.post(
+        reverse("api:async_cutout"),
+        data={
+            "id": "des_dr2",
+            "pos": "CIRCLE 0.5 2.15 0.5",
+            "band": "r",
+            "format": "fits",
+        },
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "exceeds the maximum allowed" in detail
+    assert "30 arcmin" in detail
+
+
 def test_async_phase_abort_marks_job_aborted(user):
     client = APIClient()
     client.force_authenticate(user=user)
@@ -144,7 +167,7 @@ def test_async_phase_abort_marks_job_aborted(user):
         user=user,
         params=[
             JobParameter(parameter_id="id", value="des_dr2"),
-            JobParameter(parameter_id="pos", value="CIRCLE 10 0 1"),
+            JobParameter(parameter_id="pos", value="CIRCLE 10 0 0.083333"),
             JobParameter(parameter_id="band", value="g"),
             JobParameter(parameter_id="format", value="fits"),
         ],
