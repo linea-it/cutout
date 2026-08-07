@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,12 @@ from cutout.service.stencils import Stencil
 
 from .base import CutoutEngine
 from .color_composer import COLOR_PARAMS, _arcsinh_stretch, compose_rgb
+
+# Workaround: astrocut.fits_cut._get_img_wcs mutates process-global
+# astropy_log.handlers without a lock, causing "dictionary changed size
+# during iteration" when two threads call fits_cut concurrently.
+# Serializing fits_cut calls avoids the race.
+_fits_cut_lock = threading.Lock()
 
 
 def _mosaic_hdus(
@@ -126,13 +133,14 @@ class AstrocutEngine(CutoutEngine):
 
         # --- FITS ---
         if output_format == "fits":
-            results = fits_cut(
-                input_files=input_files,
-                coordinates=coordinate,
-                cutout_size=cutout_size,
-                single_outfile=True,
-                memory_only=True,
-            )
+            with _fits_cut_lock:
+                results = fits_cut(
+                    input_files=input_files,
+                    coordinates=coordinate,
+                    cutout_size=cutout_size,
+                    single_outfile=True,
+                    memory_only=True,
+                )
             hdul = results[0]
             data_hdus = _extract_data_hdus(hdul)
 
@@ -176,13 +184,14 @@ class AstrocutEngine(CutoutEngine):
                 if not files_b:
                     raise ValueError(f"No input files provided for band {b}")
 
-                results = fits_cut(
-                    input_files=files_b,
-                    coordinates=coordinate,
-                    cutout_size=cutout_size,
-                    single_outfile=True,
-                    memory_only=True,
-                )
+                with _fits_cut_lock:
+                    results = fits_cut(
+                        input_files=files_b,
+                        coordinates=coordinate,
+                        cutout_size=cutout_size,
+                        single_outfile=True,
+                        memory_only=True,
+                    )
                 hdul = results[0]
                 data_hdus = _extract_data_hdus(hdul)
 
@@ -255,13 +264,14 @@ class AstrocutEngine(CutoutEngine):
         # --- Mono PNG ---
         from PIL import Image, PngImagePlugin
 
-        results = fits_cut(
-            input_files=input_files if isinstance(input_files, list) else [],
-            coordinates=coordinate,
-            cutout_size=cutout_size,
-            single_outfile=True,
-            memory_only=True,
-        )
+        with _fits_cut_lock:
+            results = fits_cut(
+                input_files=input_files if isinstance(input_files, list) else [],
+                coordinates=coordinate,
+                cutout_size=cutout_size,
+                single_outfile=True,
+                memory_only=True,
+            )
         hdul = results[0]
         data_hdus = _extract_data_hdus(hdul)
 
