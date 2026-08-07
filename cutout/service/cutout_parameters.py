@@ -97,4 +97,13 @@ class CutoutParameters:
         if not persists:
             persists = ["false"]
 
-        return cls(ids=ids, formats=formats, bands=bands, engines=engines, colors=colors, rgb_bands=rgb_bands, persists=persists, stencils=stencils)
+        return cls(
+            ids=ids,
+            formats=formats,
+            bands=bands,
+            engines=engines,
+            colors=colors,
+            rgb_bands=rgb_bands,
+            persists=persists,
+            stencils=stencils,
+        )
