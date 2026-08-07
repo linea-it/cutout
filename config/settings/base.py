@@ -3,7 +3,25 @@ Base settings to build other settings files upon.
 """
 from pathlib import Path
 
+# Python 3.14 compat: Django 4.2 BaseContext.__copy__ uses copy(super())
+# which is broken in Python 3.14 (super() has no __dict__ for copy).
+# Monkeypatch to reconstruct via __new__ + __dict__ copy instead.
+import django.template.context as _dtc
 import environ
+
+
+def _basecontext_copy_patched(self):
+    cls = self.__class__
+    duplicate = cls.__new__(cls)
+    # Copy all instance attributes (template, render_context, autoescape, etc.)
+    if hasattr(self, "__dict__"):
+        duplicate.__dict__.update(self.__dict__)
+    # dicts must be a fresh list to avoid shared mutation between copies
+    duplicate.dicts = self.dicts[:]
+    return duplicate
+
+
+_dtc.BaseContext.__copy__ = _basecontext_copy_patched
 
 BASE_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
 # cutout/
@@ -141,6 +159,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "allauth.account.middleware.AccountMiddleware",
 ]
 
 # STATIC
