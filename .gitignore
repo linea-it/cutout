@@ -301,3 +301,10 @@ config/certificates/*.pem
 config/certificates/*.key
 config/certificates/*.csr
 config/certificates/*.crt
+
+# Claude Code
+.claude/
+
+# Cutout test artifacts downloaded to project root
+/cutout_*.fits
+/cutout_*.png
