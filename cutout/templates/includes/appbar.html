@@ -39,7 +39,7 @@
            rel="noreferrer">{% translate "Docs" %}</a>
         {% if request.user.is_authenticated %}
           <div class="dropdown appbar-user">
-            <a class="nav-link dropdown-toggle text-uppercase fw-bold"
+            <a class="nav-link text-uppercase fw-bold"
                href="#"
                id="appbarUserMenu"
                role="button"
@@ -47,18 +47,14 @@
                aria-expanded="false">{{ request.user.username }}</a>
             <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="appbarUserMenu">
               <li>
-                <a class="dropdown-item" href="{% url 'users:detail' request.user.username %}">{% translate "My Profile" %}</a>
-              </li>
-              <li>
-                <a class="dropdown-item" href="{% url 'account_logout' %}">{% translate "Sign Out" %}</a>
+                <a class="dropdown-item" href="{% url 'account_logout' %}">{% translate "Logout" %}</a>
               </li>
             </ul>
           </div>
         {% else %}
-          {% if ACCOUNT_ALLOW_REGISTRATION %}
-            <a id="sign-up-link" class="nav-link" href="{% url 'account_signup' %}">{% translate "Sign Up" %}</a>
-          {% endif %}
-          <a id="log-in-link" class="btn btn-outline-light btn-sm" href="{% url 'account_login' %}">{% translate "Sign In" %}</a>
+          <a id="log-in-link"
+             class="nav-link text-uppercase fw-bold"
+             href="{% if settings.AUTH_SAML2_ENABLED %}{{ settings.LINEA_LOGIN_URL }}{% else %}{% url 'admin:login' %}{% endif %}">{% translate "Sign In" %}</a>
         {% endif %}
       </div>
     </div>

@@ -56,7 +56,7 @@ Bloco **condicional** (`if AUTH_SAML2_ENABLED:`), porte do lsp_daiquiri com a pa
 - `SAML_ACS_FAILURE_RESPONSE_FUNCTION = "cutout.users.views.saml2_template_failure"`,
   `SAML_SESSION_COOKIE_NAME`, `SESSION_COOKIE_SECURE=True`, `LOGIN_URL="/login/"`,
   `SAML_DEFAULT_BINDING=BINDING_HTTP_POST`, `SAML_CREATE_UNKNOWN_USER=True`, etc.
-  (`LOGIN_REDIRECT_URL` permanece `"users:redirect"`.)
+  (`LOGIN_REDIRECT_URL` permanece `"home"`.)
 - `SAML_ATTRIBUTE_MAPPING`: `eduPersonUniqueId→username`, `cn→first_name`, `sn→last_name`,
   `email→email` (o username real vem do atributo `uid`, via backend).
 - `SAML_CONFIG` completo: xmlsec em `/usr/bin/xmlsec1`, entityid `{SITE_URL}/saml2/metadata/`,
