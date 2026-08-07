@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List
 
 from cutout.service.exceptions import InvalidCutoutParameterError
 from cutout.service.stencils import Stencil, parse_stencil

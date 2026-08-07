@@ -9,10 +9,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Optional
 
 from cutout.service.models import Job as SQLJob
-from cutout.utils.dates import isodatetime_from_db
 
 
 @dataclass
@@ -60,12 +58,12 @@ class ExecutionPhase(Enum):
     """Execution completed some time ago and the results have been deleted."""
 
 
+# Phases in which the job is active and can be waited on.
 ACTIVE_PHASES = (
     ExecutionPhase.PENDING,
     ExecutionPhase.QUEUED,
     ExecutionPhase.EXECUTING,
 )
-"""Phases in which the job is active and can be waited on."""
 
 
 class ErrorCode(Enum):
