@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% load i18n %}
+
+{% block title %}
+  {% translate "API token" %}
+{% endblock title %}
+{% block content %}
+  <div class="row mt-4">
+    <div class="col-12">
+      <h6 class="fw-bold">{% translate "API token" %}</h6>
+      <p>
+        {% translate "Your API token is:" %}
+        <code>{{ token }}</code>
+      </p>
+      <form method="post" action="{% url 'users:token' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-outline-secondary">{% translate "Regenerate token" %}</button>
+      </form>
+      <p class="mt-4">
+        {% blocktranslate %}You can use this token in HTTP requests by using the <code>Authorization</code> Header:{% endblocktranslate %}
+      </p>
+      <pre class="bg-light border rounded p-3"><code>Authorization: Token {{ token }}</code></pre>
+    </div>
+  </div>
+{% endblock content %}
+
+{% block footer %}
+  {% include "includes/footer.html" %}
+{% endblock footer %}

@@ -68,7 +68,7 @@ def test_sync_get_runs_cutout_and_returns_file(user, monkeypatch, tmp_path):
 
     response = _client(user).get(
         reverse("api:sync_cutout"),
-        {"id": "des_dr2", "pos": "CIRCLE 10 0 1", "band": "g", "format": "fits"},
+        {"id": "des_dr2", "pos": "CIRCLE 10 0 0.016667", "band": "g", "format": "fits"},
     )
 
     assert response.status_code == 200
@@ -102,7 +102,7 @@ def test_sync_get_no_files_marks_error_and_returns_422(user, monkeypatch, tmp_pa
 
     response = _client(user).get(
         reverse("api:sync_cutout"),
-        {"id": "des_dr2", "pos": "CIRCLE 10 0 1", "band": "g", "format": "fits"},
+        {"id": "des_dr2", "pos": "CIRCLE 10 0 0.016667", "band": "g", "format": "fits"},
     )
 
     assert response.status_code == 422
@@ -135,3 +135,60 @@ def test_sync_get_rejects_multiple_tasks(user, monkeypatch, tmp_path):
     assert job.phase == Job.ExecutionPhase.ERROR
     assert job.tasks.count() == 2
     assert all(task.status == Task.Status.PENDING for task in job.tasks.all())
+
+
+@pytest.mark.django_db(transaction=True)
+def test_sync_get_rejects_large_radius(user, monkeypatch, tmp_path):
+    """Radii >= 10 arcmin must use async — sync returns 422 with guidance."""
+    _patch_async_result_path(monkeypatch, tmp_path)
+    _patch_cutout_execution(monkeypatch, tmp_path)
+
+    response = _client(user).get(
+        reverse("api:sync_cutout"),
+        {"id": "des_dr2", "pos": "CIRCLE 0.5 2.15 0.166667", "band": "r", "format": "fits"},
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "exceeds the synchronous limit" in detail
+    assert "POST /api/async" in detail
+    assert "10.0 arcmin" in detail
+
+    job = Job.objects.get()
+    assert job.phase == Job.ExecutionPhase.ERROR
+    task = job.tasks.get()
+    assert task.status == Task.Status.ERROR
+    assert "exceeds the synchronous limit" in task.error_message
+
+
+@pytest.mark.django_db(transaction=True)
+def test_sync_get_allows_small_radius(user, monkeypatch, tmp_path):
+    """Radii below 10 arcmin proceed normally."""
+    _patch_async_result_path(monkeypatch, tmp_path)
+    _patch_cutout_execution(monkeypatch, tmp_path)
+
+    response = _client(user).get(
+        reverse("api:sync_cutout"),
+        {"id": "des_dr2", "pos": "CIRCLE 0.5 2.15 0.083333", "band": "r", "format": "fits"},
+    )
+
+    assert response.status_code == 200
+    job = Job.objects.get()
+    assert job.phase == Job.ExecutionPhase.COMPLETED
+
+
+@pytest.mark.django_db(transaction=True)
+def test_sync_rejects_radius_above_30_arcmin(user, monkeypatch, tmp_path):
+    """Radii >= 30 arcmin are rejected regardless of mode."""
+    _patch_async_result_path(monkeypatch, tmp_path)
+    _patch_cutout_execution(monkeypatch, tmp_path)
+
+    response = _client(user).get(
+        reverse("api:sync_cutout"),
+        {"id": "des_dr2", "pos": "CIRCLE 0.5 2.15 0.5", "band": "r", "format": "fits"},
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "exceeds the maximum allowed" in detail
+    assert "30 arcmin" in detail

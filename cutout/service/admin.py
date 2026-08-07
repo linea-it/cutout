@@ -51,7 +51,18 @@ class JobResultAdmin(admin.ModelAdmin):
 
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
-    list_display = ("id", "job", "sequence", "status", "stencil_type", "survey_id", "band", "engine", "start_time", "end_time")
+    list_display = (
+        "id",
+        "job",
+        "sequence",
+        "status",
+        "stencil_type",
+        "survey_id",
+        "band",
+        "engine",
+        "start_time",
+        "end_time",
+    )
     list_filter = ("status", "stencil_type", "engine")
     readonly_fields = (
         "job",

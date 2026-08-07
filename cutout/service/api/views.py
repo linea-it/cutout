@@ -4,6 +4,7 @@ from pathlib import Path
 
 from django.http import FileResponse, HttpResponse
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.encoding import escape_uri_path
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import status
@@ -13,6 +14,7 @@ from rest_framework.views import APIView
 
 from cutout.service.cutout_runner import perform_cutout
 from cutout.service.models import Job
+from cutout.service.models.task import Task
 from cutout.service.uws.exceptions import ParameterError, ServiceUnavailableError
 from cutout.service.uws.models import JobParameter
 from cutout.service.uws.service import JobService
@@ -24,6 +26,53 @@ from .serializers import (
     JobParameterSerializer,
     JobResultSerializer,
 )
+
+# Cutouts with radius >= 10 arcmin must use the async endpoint.
+# Sync processing would take 60s+ and hit gateway/proxy timeouts.
+_SYNC_RADIUS_LIMIT_DEG = 0.166667  # 10 arcmin in degrees
+_SYNC_RADIUS_MESSAGE = (
+    "Cutout radius {radius:.1f} arcmin exceeds the synchronous limit "
+    "of 10 arcmin. Please use POST /api/async instead. "
+    "Expected processing time is {estimated}s."
+)
+
+# Absolute maximum cutout radius for any endpoint (sync or async).
+_MAX_RADIUS_LIMIT_DEG = 0.5  # 30 arcmin in degrees
+_MAX_RADIUS_MESSAGE = "Cutout radius {radius:.1f} arcmin exceeds the maximum allowed " "of 30 arcmin."
+
+
+def _extract_radius_deg(params: list[JobParameter]) -> float | None:
+    """Extract the effective radius in degrees from the 'pos' parameter.
+
+    CIRCLE -> radius directly.
+    RANGE  -> half the max of RA and Dec spans.
+    POLYGON -> None (not yet supported).
+    """
+    pos_param = next((p.value for p in params if p.parameter_id == "pos"), None)
+    if not pos_param:
+        return None
+
+    parts = pos_param.strip().split()
+    if len(parts) < 1:
+        return None
+
+    stencil_type = parts[0].upper()
+
+    if stencil_type == "CIRCLE" and len(parts) >= 4:
+        return float(parts[3])
+
+    if stencil_type == "RANGE" and len(parts) >= 5:
+        ra_span = abs(float(parts[3]) - float(parts[1])) / 2
+        dec_span = abs(float(parts[4]) - float(parts[2])) / 2
+        return max(ra_span, dec_span)
+
+    return None
+
+
+def _check_max_radius(radius_deg: float) -> None:
+    """Raise ParameterError if the radius exceeds the absolute maximum."""
+    if radius_deg >= _MAX_RADIUS_LIMIT_DEG:
+        raise ParameterError(_MAX_RADIUS_MESSAGE.format(radius=radius_deg * 60))
 
 
 def _request_items(data) -> Iterable[tuple[str, list[str]]]:
@@ -168,6 +217,21 @@ class SyncCutoutView(APIView):
             return "image/x-png"
         return "application/fits"
 
+    def _check_sync_radius(self, params: list[JobParameter], task) -> None:
+        """Raise ParameterError if the cutout radius exceeds the sync threshold."""
+        radius_deg = _extract_radius_deg(params)
+        if radius_deg is None:
+            return
+
+        if radius_deg >= _SYNC_RADIUS_LIMIT_DEG:
+            radius_arcmin = radius_deg * 60
+            # Rough estimate: FITS ~radius², PNG ~3x
+            is_png = task.output_format == "png"
+            is_color = any(p.parameter_id == "color" and str(p.value).lower() == "true" for p in params)
+            base_seconds = (radius_deg / 0.166667) ** 2 * 25
+            estimated = int(base_seconds * (3 if (is_png and is_color) else 1))
+            raise ParameterError(_SYNC_RADIUS_MESSAGE.format(radius=radius_arcmin, estimated=estimated))
+
     def sync_cutout(self, user: User, params: list[JobParameter], run_id: str | None):
         """Run a cutout synchronously inside the request.
 
@@ -186,6 +250,21 @@ class SyncCutoutView(APIView):
             job_service.mark_error(job.id)
             raise ParameterError("Only one cutout task is supported in sync mode")
         task = tasks[0]
+
+        radius_deg = _extract_radius_deg(params)
+        if radius_deg is not None:
+            _check_max_radius(radius_deg)
+
+        try:
+            self._check_sync_radius(params, task)
+        except ParameterError as exc:
+            Task.objects.filter(pk=task.id).update(
+                status=Task.Status.ERROR,
+                end_time=timezone.now(),
+                error_message=str(exc),
+            )
+            job_service.mark_error(job.id)
+            raise exc
 
         try:
             result = perform_cutout(job.id, task.id)
@@ -237,6 +316,10 @@ class AsyncCutoutView(APIView):
         if not params:
             logger.error("[AsyncCutoutView.post] No params provided")
             raise ParameterError("At least one cutout parameter is required")
+
+        radius_deg = _extract_radius_deg(params)
+        if radius_deg is not None:
+            _check_max_radius(radius_deg)
 
         phase = (requested_phase or "RUN").upper()
         if phase != "RUN":

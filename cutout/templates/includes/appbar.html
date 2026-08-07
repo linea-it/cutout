@@ -47,6 +47,12 @@
                aria-expanded="false">{{ request.user.username }}</a>
             <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="appbarUserMenu">
               <li>
+                <a class="dropdown-item" href="{% url 'users:token' %}">{% translate "API token" %}</a>
+              </li>
+              <li>
+                <hr class="dropdown-divider" />
+              </li>
+              <li>
                 <a class="dropdown-item" href="{% url 'account_logout' %}">{% translate "Logout" %}</a>
               </li>
             </ul>

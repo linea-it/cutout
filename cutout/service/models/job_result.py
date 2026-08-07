@@ -1,6 +1,3 @@
-from enum import unique
-from tabnanny import verbose
-
 from django.db import models
 
 from cutout.service.models import Job
