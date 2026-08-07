@@ -3,10 +3,12 @@ import logging
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
+from django.views import View
 from django.views.generic import DetailView, RedirectView, UpdateView
+from rest_framework.authtoken.models import Token
 
 User = get_user_model()
 
@@ -44,6 +46,22 @@ class UserRedirectView(LoginRequiredMixin, RedirectView):
 
 
 user_redirect_view = UserRedirectView.as_view()
+
+
+class UserTokenView(LoginRequiredMixin, View):
+    template_name = "users/user_token.html"
+
+    def get(self, request, *args, **kwargs):
+        token, _created = Token.objects.get_or_create(user=request.user)
+        return render(request, self.template_name, {"token": token.key})
+
+    def post(self, request, *args, **kwargs):
+        Token.objects.filter(user=request.user).delete()
+        Token.objects.create(user=request.user)
+        return redirect("users:token")
+
+
+user_token_view = UserTokenView.as_view()
 
 
 def linea_login(request):
