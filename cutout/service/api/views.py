@@ -27,9 +27,9 @@ from .serializers import (
     JobResultSerializer,
 )
 
-# Cutouts with radius >= 10 arcmin must use the async endpoint.
+# Cutouts with radius > 10 arcmin must use the async endpoint.
 # Sync processing would take 60s+ and hit gateway/proxy timeouts.
-_SYNC_RADIUS_LIMIT_DEG = 0.166667  # 10 arcmin in degrees
+_SYNC_RADIUS_LIMIT_DEG = 10 / 60  # 10 arcmin in degrees
 _SYNC_RADIUS_MESSAGE = (
     "Cutout radius {radius:.1f} arcmin exceeds the synchronous limit "
     "of 10 arcmin. Please use POST /api/async instead. "
@@ -223,12 +223,13 @@ class SyncCutoutView(APIView):
         if radius_deg is None:
             return
 
-        if radius_deg >= _SYNC_RADIUS_LIMIT_DEG:
-            radius_arcmin = radius_deg * 60
+        radius_arcmin = radius_deg * 60
+        # Compare in arcmin at 0.1' precision so 0.166667° (≈10') is accepted.
+        if round(radius_arcmin, 1) > 10:
             # Rough estimate: FITS ~radius², PNG ~3x
             is_png = task.output_format == "png"
             is_color = any(p.parameter_id == "color" and str(p.value).lower() == "true" for p in params)
-            base_seconds = (radius_deg / 0.166667) ** 2 * 25
+            base_seconds = (radius_deg / _SYNC_RADIUS_LIMIT_DEG) ** 2 * 25
             estimated = int(base_seconds * (3 if (is_png and is_color) else 1))
             raise ParameterError(_SYNC_RADIUS_MESSAGE.format(radius=radius_arcmin, estimated=estimated))
 
