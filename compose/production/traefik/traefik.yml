@@ -14,6 +14,12 @@ entryPoints:
   web-secure:
     # https
     address: ':443'
+    # Allow long-running sync cutouts / mosaics (default readTimeout is 60s).
+    transport:
+      respondingTimeouts:
+        readTimeout: 300s
+        writeTimeout: 300s
+        idleTimeout: 300s
 
   flower:
     address: ':5555'
@@ -67,9 +73,17 @@ http:
       headers:
         hostsProxyHeaders: ['X-CSRFToken']
 
+  serversTransports:
+    django-transport:
+      forwardingTimeouts:
+        dialTimeout: 30s
+        responseHeaderTimeout: 300s
+        idleConnTimeout: 300s
+
   services:
     django:
       loadBalancer:
+        serversTransport: django-transport
         servers:
           - url: http://django:5000
 
