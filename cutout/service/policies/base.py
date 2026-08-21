@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 
 class SurveyAccessPolicy(ABC):
@@ -8,7 +9,7 @@ class SurveyAccessPolicy(ABC):
     def can_request_cutout(
         self,
         *,
-        user_id: str,
+        user: Any | None,
         survey_id: str,
         release: str | None = None,
     ) -> bool:
