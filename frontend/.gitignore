@@ -1,0 +1,2 @@
+# Dependencies are installed inside the container (just frontend-build).
+node_modules/
