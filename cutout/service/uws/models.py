@@ -171,8 +171,8 @@ class Job:
     message_id: str | None
     """Internal message identifier for the work queuing system."""
 
-    owner: str
-    """Identity of the owner of the job."""
+    owner: str | None
+    """Identity of the owner of the job. None for anonymous public cutouts."""
 
     phase: ExecutionPhase
     """Execution phase of the job."""
@@ -252,7 +252,7 @@ def _convert_job(job: SQLJob) -> Job:
     return Job(
         job_id=str(job.id),
         message_id=job.message_id,
-        owner=job.owner.id,
+        owner=job.owner_id,
         phase=job.phase,
         run_id=job.run_id,
         creation_time=job.creation_time,
