@@ -4,6 +4,7 @@ import csv
 from dataclasses import dataclass
 from pathlib import Path
 
+from cutout.service.bands import assert_path_under_root, assert_safe_band, assert_safe_path_component
 from cutout.service.stencils import CircleStencil, PolygonStencil, RangeStencil, Stencil
 
 from .base import FileLocator
@@ -118,11 +119,25 @@ class DesCsvFileLocator(FileLocator):
     def _build_file_path(self, archive_path: str, band: str | None) -> Path | None:
         if not band:
             return None
+        band = assert_safe_band(band)
+        if not archive_path:
+            raise ValueError("Missing archive_path")
 
         parts = archive_path.split("/")
-        tilename = parts[2]
-        run = parts[1]
-        process = parts[3]
+        if len(parts) < 4:
+            raise ValueError(f"Malformed archive_path: {archive_path!r}")
+
+        run = assert_safe_path_component(parts[1], label="run")
+        tilename = assert_safe_path_component(parts[2], label="tilename")
+        process = assert_safe_path_component(parts[3], label="process")
 
         filename = f"{tilename}_{run}{process}_{band}.fits.fz"
-        return self._tiles_root.joinpath(tilename).joinpath(filename)
+        candidate = self._tiles_root.joinpath(tilename).joinpath(filename)
+        # Leaf files under des_dr2 are often symlinks into Y6A1; do not follow them
+        # for the containment check (still blocks .. traversal via resolved parents).
+        return assert_path_under_root(
+            candidate,
+            self._tiles_root,
+            label="tiles root",
+            follow_symlinks=False,
+        )

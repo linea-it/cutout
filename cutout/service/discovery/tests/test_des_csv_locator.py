@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from cutout.service.discovery.des_csv_locator import DesCsvFileLocator
 from cutout.service.stencils import CircleStencil, PolygonStencil, RangeStencil
 
@@ -10,10 +12,10 @@ TILE_C;19.0;19.0;21.0;21.0;Y6A1/r4907/TILE_C/p01/coadd
 """
 
 
-def _make_locator(tmp_path: Path) -> DesCsvFileLocator:
+def _make_locator(tmp_path: Path, csv_content: str = CSV_CONTENT) -> DesCsvFileLocator:
     tiles_file = tmp_path / "tiles.csv"
-    tiles_file.write_text(CSV_CONTENT, encoding="utf-8")
-    return DesCsvFileLocator(tile_list_path=tiles_file, tiles_root=Path("/data/tiles"))
+    tiles_file.write_text(csv_content, encoding="utf-8")
+    return DesCsvFileLocator(tile_list_path=tiles_file, tiles_root=tmp_path / "des_dr2")
 
 
 def test_find_files_circle_returns_intersecting_tiles(tmp_path: Path) -> None:
@@ -23,7 +25,7 @@ def test_find_files_circle_returns_intersecting_tiles(tmp_path: Path) -> None:
     files = locator.find_files(survey_id="des_dr2", stencil=stencil, band="g")
 
     assert [f.tile_id for f in files] == ["TILE_A", "TILE_B"]
-    assert str(files[0].file_path) == "/data/tiles/TILE_A/TILE_A_r4907p01_g.fits.fz"
+    assert files[0].file_path == (tmp_path / "des_dr2" / "TILE_A" / "TILE_A_r4907p01_g.fits.fz").resolve()
 
 
 def test_find_files_range_returns_single_tile(tmp_path: Path) -> None:
@@ -63,3 +65,56 @@ def test_find_files_no_overlap_returns_empty_list(tmp_path: Path) -> None:
     files = locator.find_files(survey_id="des_dr2", stencil=stencil, band="g")
 
     assert files == []
+
+
+def test_find_files_rejects_traversal_band(tmp_path: Path) -> None:
+    locator = _make_locator(tmp_path)
+    stencil = CircleStencil.from_string("10.5 0 1")
+
+    with pytest.raises(ValueError, match="Unsafe band"):
+        locator.find_files(
+            survey_id="des_dr2",
+            stencil=stencil,
+            band="x/../../../lsst_dp1/SECRET/secret",
+        )
+
+
+def test_find_files_allows_non_des_band_token(tmp_path: Path) -> None:
+    """Survey-agnostic: unknown photometric names are fine if path-safe."""
+    locator = _make_locator(tmp_path)
+    stencil = CircleStencil.from_string("10.5 0 1")
+
+    files = locator.find_files(survey_id="des_dr2", stencil=stencil, band="u")
+
+    assert files[0].file_path.name.endswith("_u.fits.fz")
+
+
+def test_find_files_rejects_archive_path_with_dotdot(tmp_path: Path) -> None:
+    evil_csv = """tilename;rall;decll;raur;decur;archive_path
+X;9.0;-1.0;11.0;1.0;Y6A1/r4907/../lsst_dp1/p01/coadd
+"""
+    locator = _make_locator(tmp_path, csv_content=evil_csv)
+    stencil = CircleStencil.from_string("10.5 0 1")
+
+    with pytest.raises(ValueError, match="Unsafe tilename"):
+        locator.find_files(survey_id="des_dr2", stencil=stencil, band="g")
+
+
+def test_find_files_allows_leaf_symlink_outside_tiles_root(tmp_path: Path) -> None:
+    """des_dr2 layout: real FITS live under Y6A1; tile dirs hold symlinks."""
+    tiles_root = tmp_path / "des_dr2"
+    tile_dir = tiles_root / "TILE_A"
+    tile_dir.mkdir(parents=True)
+    real_file = tmp_path / "Y6A1" / "TILE_A_r4907p01_g.fits.fz"
+    real_file.parent.mkdir(parents=True)
+    real_file.write_bytes(b"fits")
+    (tile_dir / "TILE_A_r4907p01_g.fits.fz").symlink_to(real_file)
+
+    locator = _make_locator(tmp_path)
+    stencil = CircleStencil.from_string("10.5 0 1")
+
+    files = locator.find_files(survey_id="des_dr2", stencil=stencil, band="g")
+
+    assert files[0].file_path == tile_dir / "TILE_A_r4907p01_g.fits.fz"
+    assert files[0].file_path.exists()
+    assert files[0].file_path.resolve() == real_file.resolve()
