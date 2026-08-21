@@ -1,4 +1,5 @@
 import logging
+import secrets
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -9,9 +10,11 @@ from django.utils.encoding import escape_uri_path
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.exceptions import APIException
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from cutout.service.bands import assert_result_path
 from cutout.service.cutout_runner import perform_cutout
 from cutout.service.models import Job
 from cutout.service.models.task import Task
@@ -73,6 +76,22 @@ def _check_max_radius(radius_deg: float) -> None:
     """Raise ParameterError if the radius exceeds the absolute maximum."""
     if radius_deg >= _MAX_RADIUS_LIMIT_DEG:
         raise ParameterError(_MAX_RADIUS_MESSAGE.format(radius=radius_deg * 60))
+
+
+def _access_context(request) -> tuple:
+    """Return (user, session_key) for job auth.
+
+    Authenticated callers authorize via owner FK. Anonymous callers must match
+    the opaque token stored in the Django session (``_cutout_job_session``).
+    Never treat owner=NULL as world-readable.
+
+    The token is written into session *data* only (no mid-request
+    ``session.save()``), so ATOMIC_REQUESTS rollbacks do not orphan the cookie.
+    """
+    token_key = "_cutout_job_session"
+    if token_key not in request.session:
+        request.session[token_key] = secrets.token_hex(16)
+    return request.user, request.session[token_key]
 
 
 def _request_items(data) -> Iterable[tuple[str, list[str]]]:
@@ -212,6 +231,8 @@ cutout_schema = extend_schema(
 
 @extend_schema_view(get=cutout_schema, post=cutout_schema)
 class SyncCutoutView(APIView):
+    permission_classes = [AllowAny]
+
     def _mimetype_for_format(self, output_format: str) -> str:
         if output_format.lower() == "png":
             return "image/x-png"
@@ -233,7 +254,13 @@ class SyncCutoutView(APIView):
             estimated = int(base_seconds * (3 if (is_png and is_color) else 1))
             raise ParameterError(_SYNC_RADIUS_MESSAGE.format(radius=radius_arcmin, estimated=estimated))
 
-    def sync_cutout(self, user: User, params: list[JobParameter], run_id: str | None):
+    def sync_cutout(
+        self,
+        user: User,
+        params: list[JobParameter],
+        run_id: str | None,
+        session_key: str | None = None,
+    ):
         """Run a cutout synchronously inside the request.
 
         Database flow is identical to the async pipeline (Job + Task rows,
@@ -243,7 +270,13 @@ class SyncCutoutView(APIView):
         logger = logging.getLogger("cutout")
         job_service = JobService()
 
-        job = job_service.create(user=user, params=params, run_id=run_id, execution_mode="sync")
+        job = job_service.create(
+            user=user,
+            params=params,
+            run_id=run_id,
+            execution_mode="sync",
+            session_key=session_key,
+        )
         logger.info("[SyncCutoutView] created job_id=%s", job.id)
 
         tasks = list(job.tasks.order_by("sequence"))
@@ -276,6 +309,11 @@ class SyncCutoutView(APIView):
             raise ParameterError(str(exc)) from exc
 
         result_file = Path(result["file_path"])
+        try:
+            result_file = assert_result_path(result_file)
+        except ValueError as exc:
+            job_service.mark_error(job.id)
+            raise ServiceUnavailableError("Result file unavailable") from exc
         if not result_file.exists():
             job_service.mark_error(job.id)
             raise ServiceUnavailableError("Result file unavailable")
@@ -291,13 +329,28 @@ class SyncCutoutView(APIView):
 
     def get(self, request, format=None):
         params, run_id, _ = _extract_job_request(request.query_params, is_post=False)
-        return self.sync_cutout(user=request.user, params=params, run_id=run_id)
+        job_service = JobService()
+        owner = request.user if getattr(request.user, "is_authenticated", False) else None
+        job_service.ensure_survey_access(user=owner, params=params)
+        user, session_key = _access_context(request)
+        return self.sync_cutout(user=user, params=params, run_id=run_id, session_key=session_key)
+
+    def post(self, request, format=None):
+        params, run_id, _ = _extract_job_request(request.data or request.query_params, is_post=True)
+        job_service = JobService()
+        owner = request.user if getattr(request.user, "is_authenticated", False) else None
+        job_service.ensure_survey_access(user=owner, params=params)
+        user, session_key = _access_context(request)
+        return self.sync_cutout(user=user, params=params, run_id=run_id, session_key=session_key)
 
 
 @extend_schema_view(get=extend_schema(parameters=[]), post=cutout_schema)
 class AsyncCutoutView(APIView):
+    permission_classes = [AllowAny]
+
     def get(self, request, format=None):
-        jobs = JobService().list_for_user(request.user)
+        user, session_key = _access_context(request)
+        jobs = JobService().list_for_user(user, session_key=session_key)
         serializer = AsyncJobSummarySerializer(
             jobs,
             many=True,
@@ -327,15 +380,22 @@ class AsyncCutoutView(APIView):
             logger.error(f"[AsyncCutoutView.post] Invalid phase: {phase}")
             raise ParameterError("Only PHASE=RUN is supported when creating async jobs")
 
+        # ACL before touching the session — avoids 500 when session middleware
+        # tries to persist a token after a denied request under ATOMIC_REQUESTS.
         job_service = JobService()
+        owner = request.user if getattr(request.user, "is_authenticated", False) else None
+        job_service.ensure_survey_access(user=owner, params=params)
+
+        user, session_key = _access_context(request)
         job = job_service.create(
-            user=request.user,
+            user=user,
             params=params,
             run_id=run_id,
+            session_key=session_key,
         )
         logger.info(f"[AsyncCutoutView.post] Created job id={job.id}")
 
-        job_service.start_async(request.user, job.id)
+        job_service.start_async(user, job.id, session_key=session_key)
         logger.info(f"[AsyncCutoutView.post] Dispatched start_async for job id={job.id}")
 
         job.refresh_from_db()
@@ -349,62 +409,83 @@ class AsyncCutoutView(APIView):
 
 
 class AsyncJobDetailView(APIView):
+    permission_classes = [AllowAny]
+
     def get(self, request, job_id: int, format=None):
-        job = JobService().get_for_user(request.user, job_id)
+        user, session_key = _access_context(request)
+        job = JobService().get_for_user(user, job_id, session_key=session_key)
         serializer = AsyncJobDetailSerializer(job, context={"request": request})
         return Response(serializer.data)
 
     def delete(self, request, job_id: int, format=None):
-        JobService().delete(request.user, job_id)
+        user, session_key = _access_context(request)
+        JobService().delete(user, job_id, session_key=session_key)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class AsyncJobPhaseView(APIView):
+    permission_classes = [AllowAny]
+
     def get(self, request, job_id: int, format=None):
-        job = JobService().get_for_user(request.user, job_id)
+        user, session_key = _access_context(request)
+        job = JobService().get_for_user(user, job_id, session_key=session_key)
         return HttpResponse(job.phase, content_type="text/plain")
 
     def post(self, request, job_id: int, format=None):
         phase = str(request.data.get("PHASE") or request.data.get("phase") or "").upper()
         job_service = JobService()
+        user, session_key = _access_context(request)
 
         if phase == "RUN":
-            job = job_service.get_for_user(request.user, job_id)
+            job = job_service.get_for_user(user, job_id, session_key=session_key)
             if job.phase not in (Job.ExecutionPhase.PENDING, Job.ExecutionPhase.HELD):
                 raise ParameterError(f"Cannot run job in phase {job.phase}")
-            job_service.start_async(request.user, job_id)
+            job_service.start_async(user, job_id, session_key=session_key)
         elif phase == "ABORT":
-            job_service.abort(request.user, job_id)
+            job_service.abort(user, job_id, session_key=session_key)
         else:
             raise ParameterError("PHASE must be RUN or ABORT")
 
-        job = job_service.get_for_user(request.user, job_id)
+        job = job_service.get_for_user(user, job_id, session_key=session_key)
         response = HttpResponse(job.phase, content_type="text/plain", status=status.HTTP_303_SEE_OTHER)
         response["Location"] = _job_location(request, job)
         return response
 
 
 class AsyncJobParametersView(APIView):
+    permission_classes = [AllowAny]
+
     def get(self, request, job_id: int, format=None):
-        parameters = JobService().get_parameters(request.user, job_id)
+        user, session_key = _access_context(request)
+        parameters = JobService().get_parameters(user, job_id, session_key=session_key)
         serializer = JobParameterSerializer(parameters, many=True)
         return Response({"parameters": serializer.data})
 
 
 class AsyncJobResultsView(APIView):
+    permission_classes = [AllowAny]
+
     def get(self, request, job_id: int, format=None):
-        results = JobService().get_results(request.user, job_id)
+        user, session_key = _access_context(request)
+        results = JobService().get_results(user, job_id, session_key=session_key)
         serializer = JobResultSerializer(results, many=True, context={"request": request})
         return Response({"results": serializer.data})
 
 
 class AsyncJobResultView(APIView):
+    permission_classes = [AllowAny]
+
     def get(self, request, job_id: int, result_id: str, format=None):
-        result = JobService().get_result(request.user, job_id, result_id)
+        user, session_key = _access_context(request)
+        result = JobService().get_result(user, job_id, result_id, session_key=session_key)
         if not result.file_path:
             raise ServiceUnavailableError("Result file unavailable")
 
-        result_file = Path(result.file_path)
+        try:
+            result_file = assert_result_path(result.file_path)
+        except ValueError as exc:
+            raise ServiceUnavailableError("Result file unavailable") from exc
+
         if not result_file.exists():
             raise ServiceUnavailableError("Result file unavailable")
 
