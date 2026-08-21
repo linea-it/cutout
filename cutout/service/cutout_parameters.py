@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from cutout.service.bands import assert_safe_band, parse_rgb_band_list
 from cutout.service.exceptions import InvalidCutoutParameterError
 from cutout.service.stencils import Stencil, parse_stencil
 from cutout.service.uws.models import JobParameter
@@ -95,6 +96,16 @@ class CutoutParameters:
             rgb_bands = ["gri"]
         if not persists:
             persists = ["false"]
+
+        # Path-safe tokens only — allowed photometric names are survey-specific.
+        try:
+            for band in bands:
+                assert_safe_band(band)
+            for rgb in rgb_bands:
+                for band in parse_rgb_band_list(rgb):
+                    assert_safe_band(band)
+        except ValueError as exc:
+            raise InvalidCutoutParameterError(str(exc), params) from exc
 
         return cls(
             ids=ids,
