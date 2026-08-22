@@ -6,7 +6,7 @@ from cutout.service import cutout_runner
 from cutout.service.cutout_runner import perform_cutout
 from cutout.service.discovery import FileDescriptor
 from cutout.service.models import Job, Task
-from cutout.service.uws.exceptions import ParameterError
+from cutout.service.uws.exceptions import ParameterError, PermissionDeniedError
 
 pytestmark = pytest.mark.django_db
 
@@ -76,6 +76,7 @@ def _patch_runner(monkeypatch, tmp_path, engine=None, input_file="present"):
     engine = engine or _FakeEngine()
     monkeypatch.setattr(cutout_runner, "DesCsvFileLocator", lambda: _FakeLocator(input_file))
     monkeypatch.setattr(cutout_runner, "create_cutout_engine", lambda name: engine)
+    monkeypatch.setattr("cutout.service.bands.get_results_root", lambda: tmp_path)
     return engine
 
 
@@ -208,3 +209,64 @@ def test_perform_cutout_rejects_task_from_another_job(user, monkeypatch, tmp_pat
     assert task_b.status == Task.Status.PENDING
     job_a.refresh_from_db()
     assert job_a.phase == Job.ExecutionPhase.PENDING
+
+
+def test_perform_cutout_rechecks_survey_policy_for_private_survey(user, monkeypatch, tmp_path):
+    """Task planted in DB without group must not run even if discovery would succeed."""
+    engine = _patch_runner(monkeypatch, tmp_path)
+    job, task = _create_job_and_task(
+        user,
+        tmp_path / "out" / "job_1_g.fits",
+        survey_id="lsst_dp1",
+    )
+
+    with pytest.raises(PermissionDeniedError, match="no access to survey"):
+        perform_cutout(job.id, task.id)
+
+    task.refresh_from_db()
+    assert task.status == Task.Status.ERROR
+    assert "no access to survey" in task.error_message
+
+    job.refresh_from_db()
+    assert job.phase == Job.ExecutionPhase.ERROR
+    assert job.results.count() == 0
+    assert engine.calls == []
+
+
+def test_perform_cutout_allows_anonymous_public_survey(monkeypatch, tmp_path):
+    engine = _patch_runner(monkeypatch, tmp_path)
+    job = Job.objects.create(owner=None, phase=Job.ExecutionPhase.PENDING)
+    task = Task.objects.create(
+        job=job,
+        sequence=1,
+        survey_id="des_dr2",
+        stencil=CIRCLE_STENCIL,
+        stencil_type="circle",
+        band="g",
+        output_format="fits",
+        engine="astrocut",
+        color=False,
+        rgb_bands="gri",
+        persist=False,
+        output_path=str(tmp_path / "out" / "anon_g.fits"),
+    )
+
+    perform_cutout(job.id, task.id)
+
+    task.refresh_from_db()
+    assert task.status == Task.Status.COMPLETED
+    assert len(engine.calls) == 1
+
+
+def test_perform_cutout_rejects_output_path_outside_results_root(user, monkeypatch, tmp_path):
+    engine = _patch_runner(monkeypatch, tmp_path)
+    outside = tmp_path.parent / "escape_write.fits"
+    job, task = _create_job_and_task(user, outside)
+
+    with pytest.raises(ParameterError, match="escapes results root"):
+        perform_cutout(job.id, task.id)
+
+    task.refresh_from_db()
+    assert task.status == Task.Status.ERROR
+    assert engine.calls == []
+    assert not outside.exists()

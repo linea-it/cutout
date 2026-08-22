@@ -13,11 +13,12 @@ from celery import chord as celery_chord
 
 from cutout.service.cutout_parameters import CutoutParameters
 from cutout.service.models import Task as SQLTask
-from cutout.service.policies import DesPublicAccessPolicy
+from cutout.service.policies import LineaSurveyAccessPolicy
 from cutout.service.tasks import finalize_job, perform_cutout_task
 from cutout.service.uws.exceptions import MultiValuedParameterError, ParameterError, PermissionDeniedError
 from cutout.service.uws.models import Job, JobParameter
 from cutout.service.uws.policy import UWSPolicy
+from cutout.users.models import User
 
 # from .actors import job_completed, job_failed
 from .exceptions import InvalidCutoutParameterError
@@ -46,7 +47,12 @@ class ImageCutoutPolicy(UWSPolicy):
     #     self._actor = actor
     #     self._logger = logger
     def __init__(self) -> None:
-        self._survey_access_policy = DesPublicAccessPolicy()
+        self._survey_access_policy = LineaSurveyAccessPolicy()
+
+    def _job_owner(self, job: Job) -> User | None:
+        if job.owner in (None, ""):
+            return None
+        return User.objects.filter(pk=job.owner).first()
 
     def _safe_token(self, value: str) -> str:
         """Normalize token for filesystem-safe filenames."""
@@ -69,13 +75,23 @@ class ImageCutoutPolicy(UWSPolicy):
         filename = f"{base_path.stem}_{sequence}{base_path.suffix or '.fits'}"
         return Path("/data/results").joinpath(execution_mode, filename)
 
+    def ensure_survey_access(self, user: User | None, params: list[JobParameter]) -> None:
+        """Raise PermissionDeniedError if any task survey is not allowed for user.
+
+        Must run before opening a DB transaction that writes Job/Task rows.
+        """
+        cutout_params = CutoutParameters.from_job_parameters(params)
+        for t in self.convert_to_list_of_task_params(cutout_params):
+            if not self._survey_access_policy.can_request_cutout(user=user, survey_id=t["id"]):
+                raise PermissionDeniedError(f"User has no access to survey {t['id']}")
+
     def create_tasks_for_job(self, job: Job, params: list[JobParameter], execution_mode: str = "async") -> list:
         """Create one Task row per cutout execution unit (stencil × band × format × engine)."""
         cutout_params = CutoutParameters.from_job_parameters(params)
         task_dicts = self.convert_to_list_of_task_params(cutout_params)
         tasks = []
         for sequence, t in enumerate(task_dicts, start=1):
-            if not self._survey_access_policy.can_request_cutout(user_id=job.owner, survey_id=t["id"]):
+            if not self._survey_access_policy.can_request_cutout(user=self._job_owner(job), survey_id=t["id"]):
                 raise PermissionDeniedError(f"User has no access to survey {t['id']}")
             output_path = str(self._build_task_result_path(job, t, sequence, execution_mode))
             stencil_obj = t["stencil_obj"]

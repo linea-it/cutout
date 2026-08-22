@@ -413,6 +413,13 @@ SPECTACULAR_SETTINGS = {
 }
 # Your stuff...
 # ------------------------------------------------------------------------------
+# Root directory for cutout result files (sync/async). Downloads must stay under this path.
+CUTOUT_RESULTS_ROOT = env.str("CUTOUT_RESULTS_ROOT", default="/data/results")
+# All jobs (anonymous and authenticated) are destroyed after this many days.
+CUTOUT_JOB_MAX_AGE_DAYS = env.int("CUTOUT_JOB_MAX_AGE_DAYS", default=7)
+# Extra wait after destruction_time before deleting still-active (QUEUED/EXECUTING/…) jobs.
+CUTOUT_JOB_ACTIVE_GRACE_HOURS = env.int("CUTOUT_JOB_ACTIVE_GRACE_HOURS", default=6)
+
 # Autenticação Django SAML2 (djangosaml2)
 # ------------------------------------------------------------------------------
 # SAML não pode ser testado localmente. Com a flag desligada (default) nada de

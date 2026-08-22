@@ -20,6 +20,7 @@ def _patch_async_result_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
         return tmp_path / execution_mode / f"job_{job.job_id}_{sequence}.{extension}"
 
     monkeypatch.setattr(ImageCutoutPolicy, "_build_task_result_path", _fake_path)
+    monkeypatch.setattr("cutout.service.bands.get_results_root", lambda: tmp_path)
 
 
 class _FakeLocator:
@@ -208,3 +209,47 @@ def test_sync_rejects_radius_above_30_arcmin(user, monkeypatch, tmp_path):
     detail = response.json()["detail"]
     assert "exceeds the maximum allowed" in detail
     assert "30 arcmin" in detail
+
+
+@pytest.mark.django_db(transaction=True)
+def test_sync_get_rejects_private_survey_without_group(user, monkeypatch, tmp_path):
+    _patch_async_result_path(monkeypatch, tmp_path)
+    _patch_cutout_execution(monkeypatch, tmp_path)
+
+    response = _client(user).get(
+        reverse("api:sync_cutout"),
+        {"id": "lsst_dp1", "pos": "CIRCLE 10 0 0.016667", "band": "g", "format": "fits"},
+    )
+
+    assert response.status_code == 403
+    assert Job.objects.count() == 0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_sync_get_allows_anonymous_des_dr2(monkeypatch, tmp_path):
+    _patch_async_result_path(monkeypatch, tmp_path)
+    _patch_cutout_execution(monkeypatch, tmp_path)
+
+    response = APIClient().get(
+        reverse("api:sync_cutout"),
+        {"id": "des_dr2", "pos": "CIRCLE 10 0 0.016667", "band": "g", "format": "fits"},
+    )
+
+    assert response.status_code == 200
+    job = Job.objects.get()
+    assert job.owner is None
+    assert job.phase == Job.ExecutionPhase.COMPLETED
+
+
+@pytest.mark.django_db(transaction=True)
+def test_sync_get_rejects_anonymous_private_survey(monkeypatch, tmp_path):
+    _patch_async_result_path(monkeypatch, tmp_path)
+    _patch_cutout_execution(monkeypatch, tmp_path)
+
+    response = APIClient().get(
+        reverse("api:sync_cutout"),
+        {"id": "lsst_dp1", "pos": "CIRCLE 10 0 0.016667", "band": "g", "format": "fits"},
+    )
+
+    assert response.status_code == 403
+    assert Job.objects.count() == 0

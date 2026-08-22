@@ -30,7 +30,23 @@ class Job(models.Model):
         default=None,
         max_length=36,
     )
-    owner = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="Owner", related_name="jobs")
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        verbose_name="Owner",
+        related_name="jobs",
+        null=True,
+        blank=True,
+    )
+    session_key = models.CharField(
+        verbose_name="Session key",
+        help_text="Browser session that owns an anonymous job. Never treat owner=NULL alone as public access.",
+        null=True,
+        blank=True,
+        default=None,
+        max_length=40,
+        db_index=True,
+    )
 
     phase = models.CharField(
         verbose_name="Execution Phase",
@@ -96,4 +112,5 @@ class Job(models.Model):
         indexes = [
             models.Index(name="by_owner_phase", fields=["owner", "phase", "creation_time"]),
             models.Index(name="by_owner_time", fields=["owner", "creation_time"]),
+            models.Index(name="by_destruction_time", fields=["destruction_time"]),
         ]

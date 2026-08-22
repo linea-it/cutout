@@ -99,6 +99,14 @@ precommit:
 rebuild:
     {{compose}} build django celeryworker celerybeat flower
 
+# Build React form into cutout/static/frontend/ (Django serves it; no compose service)
+frontend-build:
+    docker run --rm -v "{{justfile_directory()}}:/app:z" -w /app/frontend node:20-bookworm-slim sh -c "npm ci && npm run build"
+
+# Watch-rebuild the React form (Ctrl+C to stop)
+frontend-watch:
+    docker run --rm -it -v "{{justfile_directory()}}:/app:z" -w /app/frontend node:20-bookworm-slim sh -c "npm ci && npm run build -- --watch"
+
 # Start only app + queue stack needed for sync cutout development
 up-core:
     {{compose}} up -d django postgres redis celeryworker celerybeat flower

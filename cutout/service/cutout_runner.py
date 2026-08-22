@@ -14,11 +14,13 @@ from typing import Any
 
 from django.utils import timezone
 
+from cutout.service.bands import assert_result_path, assert_safe_band, parse_rgb_band_list
 from cutout.service.cutout_engine import create_cutout_engine
 from cutout.service.discovery import DesCsvFileLocator
 from cutout.service.models import Job, JobResult, Task
+from cutout.service.policies import LineaSurveyAccessPolicy
 from cutout.service.stencils import Stencil
-from cutout.service.uws.exceptions import ParameterError
+from cutout.service.uws.exceptions import ParameterError, PermissionDeniedError
 
 logger = logging.getLogger("cutout")
 
@@ -27,11 +29,7 @@ InputFiles = list[str] | dict[str, list[str]]
 
 def _parse_rgb_bands(raw: str) -> list[str]:
     """Parse rgb_bands accepting 'gri', 'g,r,i' or 'g r i'."""
-    if "," in raw:
-        return [b.strip() for b in raw.split(",") if b.strip()]
-    if " " in raw:
-        return [b.strip() for b in raw.split() if b.strip()]
-    return list(raw)
+    return parse_rgb_band_list(raw)
 
 
 def _validate_input_files(files: InputFiles | None) -> None:
@@ -52,6 +50,11 @@ def _validate_input_files(files: InputFiles | None) -> None:
 
 
 def _find_existing_files(locator: DesCsvFileLocator, task: Task, stencil: Stencil, band: str) -> list[str]:
+    try:
+        assert_safe_band(band)
+    except ValueError as exc:
+        raise ParameterError(str(exc)) from exc
+
     descriptors = locator.find_files(survey_id=task.survey_id, stencil=stencil, band=band)
     if not descriptors:
         raise ParameterError(f"No files found for band {band} in the requested region")
@@ -81,6 +84,12 @@ def _discover_input_files(task: Task) -> InputFiles:
 
 def _mime_type_for_format(output_format: str) -> str:
     return "image/png" if str(output_format).lower() == "png" else "application/fits"
+
+
+def _assert_survey_access(job: Job, task: Task) -> None:
+    """Re-check survey policy at execution time (defense in depth vs create-time only)."""
+    if not LineaSurveyAccessPolicy().can_request_cutout(user=job.owner, survey_id=task.survey_id):
+        raise PermissionDeniedError(f"User has no access to survey {task.survey_id}")
 
 
 def perform_cutout(job_id: int | str, task_id: int | str) -> dict[str, Any]:
@@ -130,8 +139,15 @@ def perform_cutout(job_id: int | str, task_id: int | str) -> dict[str, Any]:
     )
 
     try:
+        _assert_survey_access(job, task)
+
         files = _discover_input_files(task)
         _validate_input_files(files)
+
+        try:
+            output_path = assert_result_path(task.output_path)
+        except ValueError as exc:
+            raise ParameterError(str(exc)) from exc
 
         engine = create_cutout_engine(task.engine)
         result_path = Path(
@@ -141,12 +157,17 @@ def perform_cutout(job_id: int | str, task_id: int | str) -> dict[str, Any]:
                 input_files=files,
                 band=task.band,
                 output_format=task.output_format,
-                output_path=task.output_path,
+                output_path=str(output_path),
                 color=task.color,
                 rgb_bands=task.rgb_bands,
                 persist=task.persist,
             )
         )
+
+        try:
+            result_path = assert_result_path(result_path)
+        except ValueError as exc:
+            raise ParameterError(str(exc)) from exc
 
         if not result_path.exists():
             raise FileNotFoundError(f"Engine did not produce result file {result_path}")

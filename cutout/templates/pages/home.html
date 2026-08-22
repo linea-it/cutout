@@ -1,11 +1,25 @@
 {% extends "base.html" %}
 
+{% load static i18n %}
+
+{% block title %}
+  {% translate "Home" %}
+{% endblock title %}
+
 {% block content %}
-  <div class="home-hero">
-    <p>Use this document as a way to quick start any new project.</p>
-  </div>
+  {% csrf_token %}
+  <div
+    id="cutout-root"
+    data-authenticated="{% if request.user.is_authenticated %}true{% else %}false{% endif %}"
+    data-login-url="{% if settings.AUTH_SAML2_ENABLED %}{{ settings.LINEA_LOGIN_URL }}{% else %}{% url 'admin:login' %}?next={% url 'home' %}{% endif %}"
+    data-csrf-token="{{ csrf_token }}"
+  ></div>
 {% endblock content %}
 
 {% block footer %}
   {% include "includes/footer.html" %}
 {% endblock footer %}
+
+{% block inline_javascript %}
+  <script type="module" src="{% static 'frontend/assets/main.js' %}"></script>
+{% endblock inline_javascript %}

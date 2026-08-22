@@ -81,3 +81,13 @@ def task_1(x, **kwargs):
 @celery_app.task()
 def ping(x):
     return f"pong:{x}"
+
+
+@celery_app.task(name="cutout.service.tasks.cleanup_expired_jobs")
+def cleanup_expired_jobs() -> int:
+    """Delete expired cutout jobs (any owner) and safe files under results root."""
+    from cutout.service.uws.service import JobService
+
+    deleted = JobService().cleanup_expired_jobs()
+    logging.getLogger("cutout").info("[cleanup_expired_jobs] deleted=%s", deleted)
+    return deleted

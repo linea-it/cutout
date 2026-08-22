@@ -1,4 +1,4 @@
 from .base import SurveyAccessPolicy
-from .des_public import DesPublicAccessPolicy
+from .linea_survey import LineaSurveyAccessPolicy
 
-__all__ = ["SurveyAccessPolicy", "DesPublicAccessPolicy"]
+__all__ = ["SurveyAccessPolicy", "LineaSurveyAccessPolicy"]
