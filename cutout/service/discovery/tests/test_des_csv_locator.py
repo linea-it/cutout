@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from cutout.service.discovery.des_csv_locator import DesCsvFileLocator
+from cutout.service.discovery.des_dr2 import DesDr2FileLocator
 from cutout.service.stencils import CircleStencil, PolygonStencil, RangeStencil
 
 CSV_CONTENT = """tilename;rall;decll;raur;decur;archive_path
@@ -12,10 +12,10 @@ TILE_C;19.0;19.0;21.0;21.0;Y6A1/r4907/TILE_C/p01/coadd
 """
 
 
-def _make_locator(tmp_path: Path, csv_content: str = CSV_CONTENT) -> DesCsvFileLocator:
+def _make_locator(tmp_path: Path, csv_content: str = CSV_CONTENT) -> DesDr2FileLocator:
     tiles_file = tmp_path / "tiles.csv"
     tiles_file.write_text(csv_content, encoding="utf-8")
-    return DesCsvFileLocator(tile_list_path=tiles_file, tiles_root=tmp_path / "des_dr2")
+    return DesDr2FileLocator(tile_list_path=tiles_file, tiles_root=tmp_path / "des_dr2")
 
 
 def test_find_files_circle_returns_intersecting_tiles(tmp_path: Path) -> None:

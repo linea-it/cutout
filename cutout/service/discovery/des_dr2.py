@@ -5,10 +5,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from cutout.service.bands import assert_path_under_root, assert_safe_band, assert_safe_path_component
-from cutout.service.stencils import CircleStencil, PolygonStencil, RangeStencil, Stencil
+from cutout.service.stencils import Stencil
+from cutout.service.surveys import DES_DR2_ID
 
 from .base import FileLocator
 from .models import FileDescriptor
+
+DEFAULT_TILE_LIST = Path("/app/cutout/service/discovery/dr2_tiles.csv")
+DEFAULT_TILES_ROOT = Path("/data/tiles/des_dr2")
+CSV_FIELDS = ("tilename", "rall", "decll", "raur", "decur", "archive_path")
+SURVEY_IDS = frozenset({DES_DR2_ID})
 
 
 @dataclass(frozen=True)
@@ -21,10 +27,11 @@ class _TileBounds:
     archive_path: str
 
 
-class DesCsvFileLocator(FileLocator):
-    def __init__(self, tile_list_path: Path | None = None, tiles_root: Path | None = None) -> None:
-        self._tile_list_path = tile_list_path or Path("/app/cutout/service/discovery/dr2_tiles.csv")
-        self._tiles_root = tiles_root or Path("/data/tiles/des_dr2")
+@dataclass
+class DesDr2FileLocator(FileLocator):
+    survey_ids = SURVEY_IDS
+    tile_list_path: Path = DEFAULT_TILE_LIST
+    tiles_root: Path = DEFAULT_TILES_ROOT
 
     def find_files(
         self,
@@ -33,10 +40,10 @@ class DesCsvFileLocator(FileLocator):
         stencil: Stencil,
         band: str | None = None,
     ) -> list[FileDescriptor]:
-        if survey_id != "des_dr2":
+        if survey_id not in self.survey_ids:
             raise ValueError(f"Unsupported survey_id: {survey_id}")
 
-        ra_min, ra_max, dec_min, dec_max = self._stencil_to_bounds(stencil)
+        ra_min, ra_max, dec_min, dec_max = stencil.axis_aligned_bounds()
         descriptors: list[FileDescriptor] = []
 
         try:
@@ -55,17 +62,17 @@ class DesCsvFileLocator(FileLocator):
                 print(descriptor)
                 descriptors.append(descriptor)
         except Exception as e:
-            print(f"[DesCsvFileLocator.find_files] Error while finding files: {e}")
+            print(f"[DesDr2FileLocator.find_files] Error while finding files: {e}")
             raise
         return descriptors
 
     def _read_tiles(self) -> list[_TileBounds]:
         rows: list[_TileBounds] = []
-        with self._tile_list_path.open("r", encoding="utf-8") as f:
+        with self.tile_list_path.open("r", encoding="utf-8") as f:
             reader = csv.DictReader(f, delimiter=";")
             for row in reader:
-                if not all(key in row for key in ["tilename", "rall", "decll", "raur", "decur"]):
-                    print(f"[DesCsvFileLocator._read_tiles] Skipping row due to missing keys: {row}")
+                if not all(key in row for key in CSV_FIELDS):
+                    print(f"[DesDr2FileLocator._read_tiles] Skipping row due to missing keys: {row}")
                     continue
                 rows.append(
                     _TileBounds(
@@ -75,11 +82,10 @@ class DesCsvFileLocator(FileLocator):
                         ra_max=float(row["raur"]),
                         dec_max=float(row["decur"]),
                         archive_path=row.get("archive_path"),
-                        # archive_path=row.get("archive_path") or f"Y6A1/r4907/{row['tilename']}/p01/coadd",
                     )
                 )
 
-        print(f"[DesCsvFileLocator._read_tiles] read {len(rows)} tiles from {self._tile_list_path}")
+        print(f"[DesDr2FileLocator._read_tiles] read {len(rows)} tiles from {self.tile_list_path}")
         return rows
 
     @staticmethod
@@ -95,26 +101,6 @@ class DesCsvFileLocator(FileLocator):
         if not ra_overlap and ra_min < 0:
             ra_overlap = tile.ra_min <= (ra_max + 360) and tile.ra_max >= (ra_min + 360)
         return ra_overlap
-
-    @staticmethod
-    def _stencil_to_bounds(stencil: Stencil) -> tuple[float, float, float, float]:
-        if isinstance(stencil, CircleStencil):
-            ra = stencil.center.ra.degree
-            dec = stencil.center.dec.degree
-            radius = stencil.radius.degree
-            return (ra - radius, ra + radius, dec - radius, dec + radius)
-
-        if isinstance(stencil, RangeStencil):
-            ra_min, ra_max = stencil.ra
-            dec_min, dec_max = stencil.dec
-            return (ra_min, ra_max, dec_min, dec_max)
-
-        if isinstance(stencil, PolygonStencil):
-            ras = stencil.vertices.ra.degree
-            decs = stencil.vertices.dec.degree
-            return (float(min(ras)), float(max(ras)), float(min(decs)), float(max(decs)))
-
-        raise ValueError(f"Unsupported stencil type: {type(stencil).__name__}")
 
     def _build_file_path(self, archive_path: str, band: str | None) -> Path | None:
         if not band:
@@ -132,12 +118,12 @@ class DesCsvFileLocator(FileLocator):
         process = assert_safe_path_component(parts[3], label="process")
 
         filename = f"{tilename}_{run}{process}_{band}.fits.fz"
-        candidate = self._tiles_root.joinpath(tilename).joinpath(filename)
+        candidate = self.tiles_root.joinpath(tilename).joinpath(filename)
         # Leaf files under des_dr2 are often symlinks into Y6A1; do not follow them
         # for the containment check (still blocks .. traversal via resolved parents).
         return assert_path_under_root(
             candidate,
-            self._tiles_root,
+            self.tiles_root,
             label="tiles root",
             follow_symlinks=False,
         )

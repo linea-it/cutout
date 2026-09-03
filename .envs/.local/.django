@@ -4,6 +4,7 @@ USE_DOCKER=yes
 IPYTHONDIR=/app/.ipython
 DJANGO_DEBUG=True
 DJANGO_LOG_LEVEL=DEBUG
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0,192.168.3.10,100.121.140.107,100.82.198.7
 
 # Redis
 # ------------------------------------------------------------------------------
@@ -32,3 +33,7 @@ AUTH_SAML2_ENABLED=False
 # NAVBAR_IDAC_URL=https://scienceplatform.linea.org.br/idac
 # NAVBAR_DATA_URL=https://data.linea.org.br/
 # NAVBAR_DOCS_URL=https://docs.linea.org.br/
+
+# Sky Viewer (HiPS privados LSST) — espelha BASE_HOST do sky-viewer
+# ------------------------------------------------------------------------------
+SKYVIEWER_BASE_HOST=https://skyviewer.linea.org.br

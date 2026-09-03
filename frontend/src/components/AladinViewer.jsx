@@ -4,18 +4,7 @@ import Box from "@mui/material/Box";
 // Cutout API still caps radius at 30'; Aladin FoV itself is free for exploring the footprint.
 const MAX_CUTOUT_RADIUS_ARCMIN = 30;
 const MIN_FOV_DEG = (2 * 0.1) / 60; // ~0.1' radius floor for zoom-in
-const MAX_FOV_DEG = 180; // allow zooming out to see the full DES footprint
-
-const LINEA_DES_DR2_HIPS = {
-  id: "DES_DR2_IRG_LIneA",
-  name: "DES DR2 IRG at LIneA",
-  url: "https://datasets.linea.org.br/data/releases/des/dr2/images/hips/",
-  cooFrame: "equatorial",
-  options: {
-    requestCredentials: "include",
-    requestMode: "cors",
-  },
-};
+const MAX_FOV_DEG = 180;
 
 function loadAladinAssets() {
   if (window.__aladinLiteLoading) {
@@ -73,10 +62,11 @@ function fovToRadiusArcmin(fovDeg) {
 }
 
 /**
- * Aladin preview using LIneA-hosted DES DR2 HiPS (same source as sky-viewer).
+ * Aladin preview using the LIneA HiPS URL of the selected survey.
  * FoV can zoom out freely; cutout radius sync only applies within the API max.
  */
 export default function AladinViewer({
+  hips,
   ra,
   dec,
   radiusArcmin,
@@ -99,7 +89,7 @@ export default function AladinViewer({
 
     loadAladinAssets()
       .then(() => {
-        if (cancelled || !containerRef.current || aladinRef.current) {
+        if (cancelled || !containerRef.current || aladinRef.current || !hips?.url) {
           return;
         }
         const A = window.A;
@@ -120,7 +110,6 @@ export default function AladinViewer({
           showProjectionControl: false,
           showFrame: false,
           showFov: false,
-          // Top-left RA/Dec + copy control (default true in Aladin Lite v3).
           showCooLocation: false,
           showSimbadPointerControl: false,
           showShareControl: false,
@@ -130,20 +119,18 @@ export default function AladinViewer({
         });
         aladinRef.current = aladin;
 
-        // Aladin Lite 3.8.2 still opens the context menu on right-click even when
-        // showContextMenu is false; drop the widget so attach/_show cannot run.
         if (aladin.options) {
           aladin.options.showContextMenu = false;
         }
         aladin.contextMenu = null;
 
         const hipsSurvey = aladin.createImageSurvey(
-          LINEA_DES_DR2_HIPS.id,
-          LINEA_DES_DR2_HIPS.name,
-          LINEA_DES_DR2_HIPS.url,
-          LINEA_DES_DR2_HIPS.cooFrame,
+          hips.id,
+          hips.name,
+          hips.url,
+          hips.cooFrame || "equatorial",
         );
-        aladin.setImageSurvey(hipsSurvey, LINEA_DES_DR2_HIPS.options);
+        aladin.setImageSurvey(hipsSurvey, hips.options || {});
         surveyRef.current = hipsSurvey;
 
         const blockContextMenu = (event) => {
@@ -197,9 +184,9 @@ export default function AladinViewer({
       aladinRef.current = null;
       surveyRef.current = null;
     };
-    // init once
+    // Re-init when the survey HiPS URL changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hips?.url]);
 
   useEffect(() => {
     const aladin = aladinRef.current;

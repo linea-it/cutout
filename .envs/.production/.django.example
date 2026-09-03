@@ -1,0 +1,15 @@
+# Copiar para .django no servidor e preencher secrets.
+# production.yml carrega: ./.envs/.production/.django
+
+# Sky Viewer (HiPS privados LSST) — mesmo valor de BASE_HOST no sky-viewer
+# ------------------------------------------------------------------------------
+SKYVIEWER_BASE_HOST=https://skyviewer.linea.org.br
+
+# Geral / SAML (ver README)
+# ------------------------------------------------------------------------------
+# DJANGO_SECRET_KEY=
+# DJANGO_ALLOWED_HOSTS=cutout.linea.org.br
+# AUTH_SAML2_ENABLED=True
+# SITE_URL=https://cutout.linea.org.br
+# REDIS_URL=redis://redis:6379/0
+# DATABASE_URL=postgres://...

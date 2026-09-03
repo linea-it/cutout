@@ -49,6 +49,30 @@ COLOR_PARAMS: dict[str, dict] = {
             "Y": (-1.0, 350),
         },
     },
+    # Calibrated on tract/patch 5063/14 vs DES DR2 lupton (same Q/stretch/gain).
+    # Per band: sky ≈ p1; clip_range ≈ 2.21 × (p99.5 − sky) to match DES mean brightness.
+    "lsst_dp1": {
+        "method": "lupton",
+        "arcsinh_clip": {
+            "u": (-12.9, 163.0, 80.0, 1.0),
+            "g": (-2.1, 802.0, 80.0, 1.0),
+            "r": (-2.8, 1003.0, 80.0, 1.0),
+            "i": (-5.1, 1105.0, 80.0, 1.0),
+            "z": (-10.7, 1460.0, 80.0, 1.0),
+            "y": (-66.1, 4800.0, 80.0, 1.0),
+        },
+        "lupton": {
+            "Q": 10.0,
+            "stretch": 8.0,
+            "gain": 1.9,
+            "u": (-12.9, 350),
+            "g": (-2.1, 800),
+            "r": (-2.8, 1000),
+            "i": (-5.1, 1100),
+            "z": (-10.7, 1450),
+            "y": (-66.1, 4800),
+        },
+    },
 }
 
 

@@ -53,7 +53,7 @@ def _patch_cutout_execution(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, wit
     if with_files:
         input_file = tmp_path / "DES0002+0001_r4907p01_g.fits.fz"
         input_file.write_bytes(b"tile data")
-    monkeypatch.setattr(cutout_runner, "DesCsvFileLocator", lambda: _FakeLocator(input_file))
+    monkeypatch.setattr(cutout_runner, "get_file_locator", lambda survey_id: _FakeLocator(input_file))
     monkeypatch.setattr(cutout_runner, "create_cutout_engine", lambda name: _FakeEngine())
 
 

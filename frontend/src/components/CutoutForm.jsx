@@ -45,9 +45,53 @@ import JobTray from "./JobTray";
 import { loadStoredJobs, makeJobLabel, saveStoredJobs } from "../jobStorage";
 import JSZip from "jszip";
 
-const SURVEYS = [{ id: "des_dr2", label: "DES DR2" }];
-const BANDS = ["g", "r", "i", "z", "Y"];
-const RGB_PRESETS = ["gri", "riz", "izY"];
+const LINEA_HIPS_OPTIONS = {
+  requestCredentials: "include",
+  requestMode: "cors",
+};
+
+const DEFAULT_SKYVIEWER_BASE_HOST = "https://skyviewer.linea.org.br";
+
+function buildSurveys(skyviewerBaseHost) {
+  const baseHost = (skyviewerBaseHost || DEFAULT_SKYVIEWER_BASE_HOST).replace(/\/$/, "");
+  return [
+    {
+      id: "des_dr2",
+      label: "DES DR2",
+      bands: ["g", "r", "i", "z", "Y"],
+      rgbPresets: ["gri", "riz", "izY"],
+      defaultRa: "0.5",
+      defaultDec: "2.15",
+      hips: {
+        id: "DES_DR2_IRG_LIneA",
+        name: "DES DR2 IRG at LIneA",
+        url: "https://datasets.linea.org.br/data/releases/des/dr2/images/hips/",
+        cooFrame: "equatorial",
+        options: LINEA_HIPS_OPTIONS,
+      },
+    },
+    {
+      id: "lsst_dp1",
+      label: "LSST DP1",
+      requireGroup: "lsst_dp1",
+      bands: ["u", "g", "r", "i", "z", "y"],
+      rgbPresets: ["gri", "riz", "izy"],
+      // Sky Viewer: "02 39 35.55 -34 30 38.3"
+      defaultRa: "39.898125",
+      defaultDec: "-34.510639",
+      hips: {
+        id: "LSST_DP1_IRG_LIneA",
+        name: "LSST DP1 IRG at LIneA",
+        // Igual ao sky-viewer: `${baseHost}/data/releases/lsst/dp1/images/hips`
+        url: `${baseHost}/data/releases/lsst/dp1/images/hips`,
+        cooFrame: "equatorial",
+        options: LINEA_HIPS_OPTIONS,
+      },
+    },
+  ];
+}
+
+const ALL_BANDS = [...new Set(buildSurveys().flatMap((s) => s.bands))];
 const MAX_RADIUS_ARCMIN = 30;
 const SYNC_RADIUS_LIMIT_ARCMIN = 10;
 const CARD_MIN_HEIGHT = 560;
@@ -198,7 +242,7 @@ function parseBulkCoordinates(text, defaults) {
       const formatRaw = (cells[idx.format] || defaults.format || "fits").toLowerCase();
       const format = formatRaw === "png" ? "png" : "fits";
       const bandRaw = cells[idx.band] || defaults.band || "r";
-      const band = BANDS.includes(bandRaw) ? bandRaw : defaults.band;
+      const band = ALL_BANDS.includes(bandRaw) ? bandRaw : defaults.band;
       const radiusRaw =
         idx.radius !== undefined && cells[idx.radius] !== ""
           ? Number(cells[idx.radius])
@@ -264,10 +308,30 @@ function parseBulkCoordinates(text, defaults) {
   return { rows, errors };
 }
 
-export default function CutoutForm({ authenticated, loginUrl, csrfToken }) {
-  const [surveyId, setSurveyId] = useState(SURVEYS[0].id);
-  const [ra, setRa] = useState("0.5");
-  const [dec, setDec] = useState("2.15");
+export default function CutoutForm({
+  authenticated,
+  loginUrl,
+  csrfToken,
+  userGroups = [],
+  skyviewerBaseHost = DEFAULT_SKYVIEWER_BASE_HOST,
+}) {
+  const groups = useMemo(() => new Set(userGroups), [userGroups]);
+  const allSurveys = useMemo(() => buildSurveys(skyviewerBaseHost), [skyviewerBaseHost]);
+  const surveys = useMemo(
+    () =>
+      allSurveys.filter((s) => {
+        if (!s.requireGroup) {
+          return true;
+        }
+        // API cutout: requireGroup; HiPS tiles no Sky Viewer podem exigir hipsRequireGroup.
+        return groups.has(s.requireGroup) || (s.hipsRequireGroup && groups.has(s.hipsRequireGroup));
+      }),
+    [allSurveys, groups],
+  );
+  const initialSurvey = surveys.find((s) => s.id === "lsst_dp1") || surveys[0] || allSurveys[0];
+  const [surveyId, setSurveyId] = useState(initialSurvey.id);
+  const [ra, setRa] = useState(initialSurvey.defaultRa);
+  const [dec, setDec] = useState(initialSurvey.defaultDec);
   const [radiusArcmin, setRadiusArcmin] = useState("1");
   const [format, setFormat] = useState("fits");
   const [band, setBand] = useState("r");
@@ -290,10 +354,27 @@ export default function CutoutForm({ authenticated, loginUrl, csrfToken }) {
     saveStoredJobs(jobs);
   }, [jobs]);
 
+  useEffect(() => {
+    if (surveys.some((s) => s.id === surveyId)) {
+      return;
+    }
+    const next = surveys[0];
+    if (!next) {
+      return;
+    }
+    setSurveyId(next.id);
+    setRa(next.defaultRa);
+    setDec(next.defaultDec);
+  }, [surveys, surveyId]);
+
   const radiusValue = Number(radiusArcmin);
   const raValue = Number(ra);
   const decValue = Number(dec);
-  const surveyLabel = SURVEYS.find((s) => s.id === surveyId)?.label || surveyId;
+  const survey = surveys.find((s) => s.id === surveyId) || surveys[0];
+  const surveyLabel = survey.label;
+  const bands = survey.bands;
+  const rgbPresets = survey.rgbPresets;
+  const hasSkyMap = Boolean(survey?.hips?.url);
 
   const validationError = useMemo(() => {
     if (Number.isNaN(raValue) || raValue < 0 || raValue >= 360) {
@@ -815,7 +896,7 @@ export default function CutoutForm({ authenticated, loginUrl, csrfToken }) {
       </Typography>
 
       <Grid container spacing={3} alignItems="stretch">
-        <Grid size={{ xs: 12, md: 5 }} sx={{ display: "flex" }}>
+        <Grid size={{ xs: 12, md: hasSkyMap ? 5 : 12 }} sx={{ display: "flex" }}>
           <Card elevation={2} sx={cardSx}>
             <CardContent sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
               <Stack spacing={2} sx={{ flex: 1 }}>
@@ -825,11 +906,22 @@ export default function CutoutForm({ authenticated, loginUrl, csrfToken }) {
                     labelId="survey-label"
                     label="Survey"
                     value={surveyId}
-                    onChange={(e) => setSurveyId(e.target.value)}
+                    onChange={(e) => {
+                      const next = surveys.find((s) => s.id === e.target.value) || surveys[0];
+                      setSurveyId(next.id);
+                      setRa(next.defaultRa);
+                      setDec(next.defaultDec);
+                      if (!next.bands.includes(band)) {
+                        setBand(next.bands.includes("g") ? "g" : next.bands[0]);
+                      }
+                      if (!next.rgbPresets.includes(rgbBands)) {
+                        setRgbBands(next.rgbPresets[0]);
+                      }
+                    }}
                   >
-                    {SURVEYS.map((survey) => (
-                      <MenuItem key={survey.id} value={survey.id}>
-                        {survey.label}
+                    {surveys.map((item) => (
+                      <MenuItem key={item.id} value={item.id}>
+                        {item.label}
                       </MenuItem>
                     ))}
                   </Select>
@@ -905,7 +997,7 @@ export default function CutoutForm({ authenticated, loginUrl, csrfToken }) {
                       value={rgbBands}
                       onChange={(e) => setRgbBands(e.target.value)}
                     >
-                      {RGB_PRESETS.map((preset) => (
+                      {rgbPresets.map((preset) => (
                         <MenuItem key={preset} value={preset}>
                           {preset}
                         </MenuItem>
@@ -921,7 +1013,7 @@ export default function CutoutForm({ authenticated, loginUrl, csrfToken }) {
                       value={band}
                       onChange={(e) => setBand(e.target.value)}
                     >
-                      {BANDS.map((b) => (
+                      {bands.map((b) => (
                         <MenuItem key={b} value={b}>
                           {b}
                         </MenuItem>
@@ -1026,17 +1118,21 @@ export default function CutoutForm({ authenticated, loginUrl, csrfToken }) {
           </Card>
         </Grid>
 
-        <Grid size={{ xs: 12, md: 7 }} sx={{ display: "flex" }}>
-          <Card elevation={2} sx={{ ...cardSx, p: 2 }}>
-            <AladinViewer
-              ra={raValue}
-              dec={decValue}
-              radiusArcmin={Number.isFinite(radiusValue) ? Math.min(radiusValue, MAX_RADIUS_ARCMIN) : 1}
-              onCenterChange={handleCenterChange}
-              onRadiusChange={handleRadiusChange}
-            />
-          </Card>
-        </Grid>
+        {hasSkyMap ? (
+          <Grid size={{ xs: 12, md: 7 }} sx={{ display: "flex" }}>
+            <Card elevation={2} sx={{ ...cardSx, p: 2 }}>
+              <AladinViewer
+                key={survey.hips.url}
+                hips={survey.hips}
+                ra={raValue}
+                dec={decValue}
+                radiusArcmin={Number.isFinite(radiusValue) ? Math.min(radiusValue, MAX_RADIUS_ARCMIN) : 1}
+                onCenterChange={handleCenterChange}
+                onRadiusChange={handleRadiusChange}
+              />
+            </Card>
+          </Grid>
+        ) : null}
       </Grid>
 
       <Accordion
@@ -1167,7 +1263,7 @@ export default function CutoutForm({ authenticated, loginUrl, csrfToken }) {
                               }
                               fullWidth
                             >
-                              {RGB_PRESETS.map((preset) => (
+                              {rgbPresets.map((preset) => (
                                 <MenuItem key={preset} value={preset}>
                                   {preset}
                                 </MenuItem>
@@ -1180,7 +1276,7 @@ export default function CutoutForm({ authenticated, loginUrl, csrfToken }) {
                               onChange={(e) => updatePreviewRow(row.id, { band: e.target.value })}
                               fullWidth
                             >
-                              {BANDS.map((b) => (
+                              {bands.map((b) => (
                                 <MenuItem key={b} value={b}>
                                   {b}
                                 </MenuItem>

@@ -52,7 +52,6 @@ coverage.xml
 
 # Django stuff:
 staticfiles/
-data/log/
 
 # Sphinx documentation
 docs/_build/
@@ -278,23 +277,15 @@ cutout/media/
 .pytest_cache/
 .ipython/
 .env
+.env.stating
 .envs/*
 !.envs/.local/
+!.envs/.production/
+.envs/.production/*
+!.envs/.production/.django.example
 
-data/*.tar.gz
-data/results/*.png
-data/results/*.fits
-data/tiles/*.fz
-data/tiles/*.fits
-data/tmp/*.fits
-data/tmp/*.png
-
-data/original_files/*.tar.gz
-data/tiles/*
-data/results/debug/*
-data/results/async/*
-data/results/sync/*
-!data/results/sync/.gitkeep
+# Runtime / tiles / resultados locais (nunca versionar)
+data/
 
 # SAML2 SP certificates (nunca commitar chaves/certificados)
 config/certificates/*.pem

@@ -451,6 +451,10 @@ NAVBAR_IDAC_URL = env.str("NAVBAR_IDAC_URL", default="https://scienceplatform-de
 NAVBAR_DATA_URL = env.str("NAVBAR_DATA_URL", default="https://data.linea.org.br/")
 NAVBAR_DOCS_URL = env.str("NAVBAR_DOCS_URL", default="https://docs.linea.org.br/")
 
+# Host do Sky Viewer (mesmo valor de BASE_HOST lá) para montar URLs HiPS privados.
+# Ex.: https://skyviewer.linea.org.br — sem barra final.
+SKYVIEWER_BASE_HOST = env.str("SKYVIEWER_BASE_HOST", default="https://skyviewer.linea.org.br").rstrip("/")
+
 # django-settings-export: todos os nomes precisam existir com a flag on ou off.
 SETTINGS_EXPORT = [
     "AUTH_SAML2_ENABLED",
@@ -461,6 +465,7 @@ SETTINGS_EXPORT = [
     "NAVBAR_IDAC_URL",
     "NAVBAR_DATA_URL",
     "NAVBAR_DOCS_URL",
+    "SKYVIEWER_BASE_HOST",
 ]
 
 if AUTH_SAML2_ENABLED:

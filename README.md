@@ -128,6 +128,7 @@ montadas e `LOGIN_URL` passa a ser `/login/`.
 
 Variáveis de ambiente para produção (`.envs/.production/.django`):
 
+- `SKYVIEWER_BASE_HOST=https://skyviewer.linea.org.br` — host do Sky Viewer (mesmo `BASE_HOST` de lá) para HiPS privados LSST
 - `AUTH_SAML2_ENABLED=True`
 - `SITE_URL=https://cutout.linea.org.br` (FQDN do SP, sem barra final)
 - `SAML_SP_NAME` (default `SP Cutout Service`)
