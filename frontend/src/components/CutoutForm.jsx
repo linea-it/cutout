@@ -50,10 +50,7 @@ const LINEA_HIPS_OPTIONS = {
   requestMode: "cors",
 };
 
-const DEFAULT_SKYVIEWER_BASE_HOST = "https://skyviewer.linea.org.br";
-
-function buildSurveys(skyviewerBaseHost) {
-  const baseHost = (skyviewerBaseHost || DEFAULT_SKYVIEWER_BASE_HOST).replace(/\/$/, "");
+function buildSurveys() {
   return [
     {
       id: "des_dr2",
@@ -82,8 +79,8 @@ function buildSurveys(skyviewerBaseHost) {
       hips: {
         id: "LSST_DP1_IRG_LIneA",
         name: "LSST DP1 IRG at LIneA",
-        // Igual ao sky-viewer: `${baseHost}/data/releases/lsst/dp1/images/hips`
-        url: `${baseHost}/data/releases/lsst/dp1/images/hips`,
+        // Same-origin proxy (Cutout session + policy lsst_dp1).
+        url: "/data/releases/lsst/dp1/images/hips",
         cooFrame: "equatorial",
         options: LINEA_HIPS_OPTIONS,
       },
@@ -313,10 +310,9 @@ export default function CutoutForm({
   loginUrl,
   csrfToken,
   userGroups = [],
-  skyviewerBaseHost = DEFAULT_SKYVIEWER_BASE_HOST,
 }) {
   const groups = useMemo(() => new Set(userGroups), [userGroups]);
-  const allSurveys = useMemo(() => buildSurveys(skyviewerBaseHost), [skyviewerBaseHost]);
+  const allSurveys = useMemo(() => buildSurveys(), []);
   const surveys = useMemo(
     () =>
       allSurveys.filter((s) => {

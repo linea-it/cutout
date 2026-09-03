@@ -14,8 +14,6 @@ if (rootEl) {
     .split(",")
     .map((g) => g.trim())
     .filter(Boolean);
-  const skyviewerBaseHost =
-    rootEl.dataset.skyviewerBaseHost || "https://skyviewer.linea.org.br";
 
   createRoot(rootEl).render(
     <React.StrictMode>
@@ -26,7 +24,6 @@ if (rootEl) {
           loginUrl={loginUrl}
           csrfToken={csrfToken}
           userGroups={userGroups}
-          skyviewerBaseHost={skyviewerBaseHost}
         />
       </ThemeProvider>
     </React.StrictMode>,

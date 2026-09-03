@@ -21,7 +21,7 @@ jobs:
         with:
           images: linea/cutout
           tags: |
-            type=sha,format=short
+            type=sha,format=short,prefix=
             type=ref,event=branch
             type=raw,value=${{ inputs.extra_tag }},enable=${{ inputs.extra_tag != '' }}
           flavor: |
