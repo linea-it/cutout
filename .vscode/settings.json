@@ -11,5 +11,7 @@
     "isort.args": [
         "--profile",
         "black"
-    ]
+    ],
+    "cursorpyright.analysis.autoImportCompletions": true,
+    "cursorpyright.analysis.typeCheckingMode": "off"
 }

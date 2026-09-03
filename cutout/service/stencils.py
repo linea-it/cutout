@@ -49,6 +49,23 @@ class Stencil(ABC):
     def get_cutout_size(self):
         """Return the cutout size with units preserved."""
 
+    def axis_aligned_bounds(self) -> tuple[float, float, float, float]:
+        """RA/Dec AABB for file discovery (not a circular/polygonal mask).
+
+        Same box the cutout engine uses via ``get_center`` + ``get_cutout_size``.
+        Returns ``(ra_min, ra_max, dec_min, dec_max)`` in degrees.
+        """
+        center = self.get_center()
+        size = self.get_cutout_size()
+        ra = float(center.ra.degree)
+        dec = float(center.dec.degree)
+        if hasattr(size, "to"):
+            half = float(size.to(u.deg).value) / 2.0
+            return (ra - half, ra + half, dec - half, dec + half)
+        half_ra = float(size[0].to(u.deg).value) / 2.0
+        half_dec = float(size[1].to(u.deg).value) / 2.0
+        return (ra - half_ra, ra + half_ra, dec - half_dec, dec + half_dec)
+
 
 @dataclass
 class CircleStencil(Stencil):
@@ -80,6 +97,12 @@ class CircleStencil(Stencil):
 
     def get_cutout_size(self):
         return 2 * self.radius
+
+    def axis_aligned_bounds(self) -> tuple[float, float, float, float]:
+        ra = float(self.center.ra.degree)
+        dec = float(self.center.dec.degree)
+        radius = float(self.radius.degree)
+        return (ra - radius, ra + radius, dec - radius, dec + radius)
 
 
 @dataclass
@@ -129,6 +152,11 @@ class PolygonStencil(Stencil):
         decs = self.vertices.dec.degree
         return [(ras.max() - ras.min()) * u.deg, (decs.max() - decs.min()) * u.deg]
 
+    def axis_aligned_bounds(self) -> tuple[float, float, float, float]:
+        ras = self.vertices.ra.degree
+        decs = self.vertices.dec.degree
+        return (float(min(ras)), float(max(ras)), float(min(decs)), float(max(decs)))
+
 
 @dataclass
 class RangeStencil(Stencil):
@@ -161,6 +189,9 @@ class RangeStencil(Stencil):
 
     def get_cutout_size(self):
         return [(self.ra[1] - self.ra[0]) * u.deg, (self.dec[1] - self.dec[0]) * u.deg]
+
+    def axis_aligned_bounds(self) -> tuple[float, float, float, float]:
+        return (self.ra[0], self.ra[1], self.dec[0], self.dec[1])
 
 
 def parse_stencil(stencil_type: str, params: str) -> Stencil:

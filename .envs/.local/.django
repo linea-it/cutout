@@ -4,6 +4,7 @@ USE_DOCKER=yes
 IPYTHONDIR=/app/.ipython
 DJANGO_DEBUG=True
 DJANGO_LOG_LEVEL=DEBUG
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0,192.168.3.10,100.121.140.107,100.82.198.7
 
 # Redis
 # ------------------------------------------------------------------------------
