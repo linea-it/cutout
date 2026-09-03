@@ -10,6 +10,12 @@ if (rootEl) {
   const authenticated = rootEl.dataset.authenticated === "true";
   const loginUrl = rootEl.dataset.loginUrl || "/admin/login/?next=/";
   const csrfToken = rootEl.dataset.csrfToken || "";
+  const userGroups = (rootEl.dataset.userGroups || "")
+    .split(",")
+    .map((g) => g.trim())
+    .filter(Boolean);
+  const skyviewerBaseHost =
+    rootEl.dataset.skyviewerBaseHost || "https://skyviewer.linea.org.br";
 
   createRoot(rootEl).render(
     <React.StrictMode>
@@ -19,6 +25,8 @@ if (rootEl) {
           authenticated={authenticated}
           loginUrl={loginUrl}
           csrfToken={csrfToken}
+          userGroups={userGroups}
+          skyviewerBaseHost={skyviewerBaseHost}
         />
       </ThemeProvider>
     </React.StrictMode>,

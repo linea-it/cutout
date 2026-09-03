@@ -11,6 +11,8 @@
   <div
     id="cutout-root"
     data-authenticated="{% if request.user.is_authenticated %}true{% else %}false{% endif %}"
+    data-user-groups="{% if request.user.is_authenticated %}{% for g in request.user.groups.all %}{{ g.name }}{% if not forloop.last %},{% endif %}{% endfor %}{% endif %}"
+    data-skyviewer-base-host="{{ settings.SKYVIEWER_BASE_HOST }}"
     data-login-url="{% if settings.AUTH_SAML2_ENABLED %}{{ settings.LINEA_LOGIN_URL }}{% else %}{% url 'admin:login' %}?next={% url 'home' %}{% endif %}"
     data-csrf-token="{{ csrf_token }}"
   ></div>

@@ -74,7 +74,7 @@ def _patch_runner(monkeypatch, tmp_path, engine=None, input_file="present"):
         input_file = tmp_path / "DES0002+0001_r4907p01_g.fits.fz"
         input_file.write_bytes(b"tile data")
     engine = engine or _FakeEngine()
-    monkeypatch.setattr(cutout_runner, "DesCsvFileLocator", lambda: _FakeLocator(input_file))
+    monkeypatch.setattr(cutout_runner, "get_file_locator", lambda survey_id: _FakeLocator(input_file))
     monkeypatch.setattr(cutout_runner, "create_cutout_engine", lambda name: engine)
     monkeypatch.setattr("cutout.service.bands.get_results_root", lambda: tmp_path)
     return engine

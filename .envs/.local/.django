@@ -33,3 +33,7 @@ AUTH_SAML2_ENABLED=False
 # NAVBAR_IDAC_URL=https://scienceplatform.linea.org.br/idac
 # NAVBAR_DATA_URL=https://data.linea.org.br/
 # NAVBAR_DOCS_URL=https://docs.linea.org.br/
+
+# Sky Viewer (HiPS privados LSST) — espelha BASE_HOST do sky-viewer
+# ------------------------------------------------------------------------------
+SKYVIEWER_BASE_HOST=https://skyviewer.linea.org.br

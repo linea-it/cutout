@@ -10,3 +10,5 @@ def test_home_mounts_cutout_root(client):
     assert 'id="cutout-root"' in content
     assert "frontend/assets/main.js" in content
     assert 'data-authenticated="false"' in content
+    assert "data-skyviewer-base-host=" in content
+    assert "data-user-groups" in content

@@ -16,9 +16,9 @@ from django.utils import timezone
 
 from cutout.service.bands import assert_result_path, assert_safe_band, parse_rgb_band_list
 from cutout.service.cutout_engine import create_cutout_engine
-from cutout.service.discovery import DesCsvFileLocator
+from cutout.service.discovery import FileLocator, get_file_locator
 from cutout.service.models import Job, JobResult, Task
-from cutout.service.policies import LineaSurveyAccessPolicy
+from cutout.service.policies import can_request_cutout
 from cutout.service.stencils import Stencil
 from cutout.service.uws.exceptions import ParameterError, PermissionDeniedError
 
@@ -49,7 +49,7 @@ def _validate_input_files(files: InputFiles | None) -> None:
         raise FileNotFoundError(msg)
 
 
-def _find_existing_files(locator: DesCsvFileLocator, task: Task, stencil: Stencil, band: str) -> list[str]:
+def _find_existing_files(locator: FileLocator, task: Task, stencil: Stencil, band: str) -> list[str]:
     try:
         assert_safe_band(band)
     except ValueError as exc:
@@ -69,7 +69,10 @@ def _find_existing_files(locator: DesCsvFileLocator, task: Task, stencil: Stenci
 def _discover_input_files(task: Task) -> InputFiles:
     """Locate the input tiles for a task, per band when color composition is requested."""
     stencil = Stencil.from_dict(task.stencil)
-    locator = DesCsvFileLocator()
+    try:
+        locator = get_file_locator(task.survey_id)
+    except ValueError as exc:
+        raise ParameterError(str(exc)) from exc
 
     if task.color:
         bands = _parse_rgb_bands(task.rgb_bands or "gri")
@@ -88,7 +91,7 @@ def _mime_type_for_format(output_format: str) -> str:
 
 def _assert_survey_access(job: Job, task: Task) -> None:
     """Re-check survey policy at execution time (defense in depth vs create-time only)."""
-    if not LineaSurveyAccessPolicy().can_request_cutout(user=job.owner, survey_id=task.survey_id):
+    if not can_request_cutout(user=job.owner, survey_id=task.survey_id):
         raise PermissionDeniedError(f"User has no access to survey {task.survey_id}")
 
 
