@@ -242,7 +242,7 @@ export default function AladinViewer({
   const readyRef = useRef(false);
   const [mapLoading, setMapLoading] = useState(true);
   const [mapUnavailable, setMapUnavailable] = useState(false);
-  const [overlayMode, setOverlayMode] = useState("square");
+  const [overlayMode, setOverlayMode] = useState("off");
   const callbacksRef = useRef({ onCenterChange, onRadiusChange });
 
   useEffect(() => {
@@ -264,6 +264,7 @@ export default function AladinViewer({
     let resizeObserver;
     let overlayRaf = 0;
     let zoomSettleTimer = 0;
+    let centerSettleTimer = 0;
     let zooming = false;
     const drawStampNow = () => {
       const aladin = aladinRef.current;
@@ -415,9 +416,16 @@ export default function AladinViewer({
           if (syncingRef.current) {
             return;
           }
-          const [raNow, decNow] = aladin.getRaDec();
-          callbacksRef.current.onCenterChange?.(raNow, decNow);
           queueStampRedraw();
+          window.clearTimeout(centerSettleTimer);
+          centerSettleTimer = window.setTimeout(() => {
+            centerSettleTimer = 0;
+            if (cancelled || syncingRef.current) {
+              return;
+            }
+            const [raNow, decNow] = aladin.getRaDec();
+            callbacksRef.current.onCenterChange?.(raNow, decNow);
+          }, 120);
         };
 
         const pushRadiusFromAladin = () => {
@@ -476,6 +484,7 @@ export default function AladinViewer({
         window.cancelAnimationFrame(overlayRaf);
       }
       window.clearTimeout(zoomSettleTimer);
+      window.clearTimeout(centerSettleTimer);
       if (resizeObserver) {
         resizeObserver.disconnect();
       }
