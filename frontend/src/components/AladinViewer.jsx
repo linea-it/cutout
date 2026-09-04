@@ -1,5 +1,7 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
+import CircularProgress from "@mui/material/CircularProgress";
+import Typography from "@mui/material/Typography";
 
 // Cutout API still caps radius at 30'; Aladin FoV itself is free for exploring the footprint.
 const MAX_CUTOUT_RADIUS_ARCMIN = 30;
@@ -15,14 +17,7 @@ function loadAladinAssets() {
   }
 
   window.__aladinLiteLoading = new Promise((resolve, reject) => {
-    const cssId = "aladin-lite-css";
-    if (!document.getElementById(cssId)) {
-      const link = document.createElement("link");
-      link.id = cssId;
-      link.rel = "stylesheet";
-      link.href = "https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.min.css";
-      document.head.appendChild(link);
-    }
+    // Aladin Lite v3 bundles styles in JS; aladin.min.css on /latest/ is 404.
 
     const scriptId = "aladin-lite-js";
     const existing = document.getElementById(scriptId);
@@ -70,6 +65,7 @@ export default function AladinViewer({
   ra,
   dec,
   radiusArcmin,
+  seekId = 0,
   onCenterChange,
   onRadiusChange,
 }) {
@@ -78,6 +74,8 @@ export default function AladinViewer({
   const surveyRef = useRef(null);
   const syncingRef = useRef(false);
   const readyRef = useRef(false);
+  const [mapLoading, setMapLoading] = useState(true);
+  const [mapUnavailable, setMapUnavailable] = useState(false);
   const callbacksRef = useRef({ onCenterChange, onRadiusChange });
 
   useEffect(() => {
@@ -86,23 +84,54 @@ export default function AladinViewer({
 
   useEffect(() => {
     let cancelled = false;
+    let resizeObserver;
+    setMapLoading(true);
+    setMapUnavailable(false);
 
-    loadAladinAssets()
-      .then(() => {
-        if (cancelled || !containerRef.current || aladinRef.current || !hips?.url) {
+    const markReady = () => {
+      if (!cancelled) {
+        setMapLoading(false);
+      }
+    };
+
+    const propertiesUrl = `${String(hips?.url || "").replace(/\/$/, "")}/properties`;
+    const fetchOpts = {
+      credentials: hips?.options?.requestCredentials === "include" ? "include" : "omit",
+      mode: hips?.options?.requestMode === "same-origin" ? "same-origin" : "cors",
+    };
+
+    Promise.all([
+      loadAladinAssets(),
+      hips?.url
+        ? fetch(propertiesUrl, fetchOpts).then(
+            (response) => response,
+            () => ({ ok: false, status: 0 }),
+          )
+        : Promise.resolve({ ok: false, status: 0 }),
+    ])
+      .then(([, propertiesResponse]) => {
+        if (cancelled || !containerRef.current || aladinRef.current) {
+          markReady();
+          return;
+        }
+        if (!propertiesResponse?.ok) {
+          setMapUnavailable(true);
+          markReady();
           return;
         }
         const A = window.A;
         const initialRa = Number.isFinite(Number(ra)) ? Number(ra) : 0.5;
         const initialDec = Number.isFinite(Number(dec)) ? Number(dec) : 2.15;
         const initialFov = radiusToFovDeg(radiusArcmin || 1);
-
         const aladin = A.aladin(containerRef.current, {
+          // Never omit `survey`: Aladin would load DSS2 as a fallback.
+          survey: hips.url,
           fov: initialFov,
           target: `${initialRa} ${initialDec}`,
           cooFrame: "ICRSd",
+          backgroundColor: "rgb(0, 0, 0)",
           showReticle: true,
-          showZoomControl: false,
+          showZoomControl: true,
           showFullscreenControl: false,
           showLayersControl: false,
           showGotoControl: false,
@@ -130,8 +159,28 @@ export default function AladinViewer({
           hips.url,
           hips.cooFrame || "equatorial",
         );
-        aladin.setImageSurvey(hipsSurvey, hips.options || {});
+        aladin.setImageSurvey(hipsSurvey, {
+          imgFormat: "png",
+          ...(hips.options || {}),
+        });
         surveyRef.current = hipsSurvey;
+        Promise.resolve(hipsSurvey).catch(() => {
+          if (cancelled) {
+            return;
+          }
+          try {
+            ["P/DSS2/color", "CDS/P/DSS2/color"].forEach((id) => {
+              aladin.removeImageLayer?.(id);
+            });
+            const base = aladin.getBaseImageLayer?.();
+            if (base) {
+              aladin.removeImageLayer?.(base);
+            }
+          } catch (err) {
+            // ignore
+          }
+          setMapUnavailable(true);
+        });
 
         const blockContextMenu = (event) => {
           event.preventDefault();
@@ -153,26 +202,58 @@ export default function AladinViewer({
           }
           const [raNow, decNow] = aladin.getRaDec();
           callbacksRef.current.onCenterChange?.(raNow, decNow);
+        };
 
+        const pushRadiusFromAladin = () => {
+          if (syncingRef.current) {
+            return;
+          }
+          const [fovLon] = aladin.getFov();
+          const exploreFov = clampExploreFovDeg(fovLon);
+          if (Math.abs(exploreFov - fovLon) > 1e-6) {
+            syncingRef.current = true;
+            aladin.setFov(exploreFov);
+            syncingRef.current = false;
+          }
           const radiusNow = fovToRadiusArcmin(exploreFov);
-          // Only push radius into the form while within the cutout API limit.
           if (radiusNow <= MAX_CUTOUT_RADIUS_ARCMIN) {
             callbacksRef.current.onRadiusChange?.(Math.max(0.1, radiusNow));
           }
         };
 
         aladin.on("positionChanged", pushFromAladin);
-        aladin.on("zoomChanged", pushFromAladin);
+        aladin.on("zoomChanged", pushRadiusFromAladin);
         readyRef.current = true;
+        markReady();
+        window.requestAnimationFrame(() => {
+          if (!cancelled && typeof aladin.resize === "function") {
+            aladin.resize();
+          }
+        });
+        if (typeof ResizeObserver !== "undefined" && containerRef.current) {
+          resizeObserver = new ResizeObserver(() => {
+            if (!cancelled && typeof aladin.resize === "function") {
+              aladin.resize();
+            }
+          });
+          resizeObserver.observe(containerRef.current);
+        }
       })
       .catch((err) => {
         // eslint-disable-next-line no-console
         console.error(err);
+        if (!cancelled) {
+          setMapUnavailable(true);
+        }
+        markReady();
       });
 
     return () => {
       cancelled = true;
       readyRef.current = false;
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
       if (containerRef.current) {
         const blockContextMenu = containerRef.current.__aladinBlockContextMenu;
         if (blockContextMenu) {
@@ -189,6 +270,9 @@ export default function AladinViewer({
   }, [hips?.url]);
 
   useEffect(() => {
+    if (!seekId) {
+      return;
+    }
     const aladin = aladinRef.current;
     if (!aladin || !readyRef.current) {
       return;
@@ -196,46 +280,82 @@ export default function AladinViewer({
     const raVal = Number(ra);
     const decVal = Number(dec);
     const radiusVal = Number(radiusArcmin);
-    if (!Number.isFinite(raVal) || !Number.isFinite(decVal) || !Number.isFinite(radiusVal)) {
+    if (!Number.isFinite(raVal) || !Number.isFinite(decVal) || !Number.isFinite(radiusVal) || radiusVal <= 0) {
       return;
     }
 
     syncingRef.current = true;
     try {
       aladin.gotoRaDec(raVal, decVal);
-      // Form radius only drives FoV when within the cutout max (avoids yanking zoom out).
       if (radiusVal <= MAX_CUTOUT_RADIUS_ARCMIN) {
-        const [currentFov] = aladin.getFov();
-        const impliedRadius = fovToRadiusArcmin(currentFov);
-        // If user zoomed out past the cutout size, keep that explore FoV.
-        if (impliedRadius <= MAX_CUTOUT_RADIUS_ARCMIN) {
-          aladin.setFov(radiusToFovDeg(radiusVal));
-        }
+        aladin.setFov(radiusToFovDeg(radiusVal));
       }
     } finally {
-      syncingRef.current = false;
+      window.setTimeout(() => {
+        syncingRef.current = false;
+      }, 80);
     }
-  }, [ra, dec, radiusArcmin]);
+    // Apply form RA/Dec/radius only when the user clicks search.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seekId]);
 
   return (
-    <Box sx={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", gap: 1 }}>
+    <Box sx={{ width: "100%", height: "100%", minHeight: 0, flex: 1, display: "flex", flexDirection: "column" }}>
       <Box
-        ref={containerRef}
-        onContextMenu={(event) => event.preventDefault()}
         sx={{
+          position: "relative",
           flex: 1,
-          minHeight: 420,
+          minHeight: 0,
+          height: "100%",
           width: "100%",
           borderRadius: 1,
           overflow: "hidden",
+          bgcolor: "#000",
           border: "1px solid",
           borderColor: "divider",
-          // Hide chrome Aladin may still inject despite options (esp. older CDN builds).
-          "& .aladin-location, & .aladin-fov, & .aladin-context-menu": {
+          "& .aladin-location, & .aladin-fov, & .aladin-status, & .aladin-context-menu": {
             display: "none !important",
           },
         }}
-      />
+      >
+        <div
+          ref={containerRef}
+          onContextMenu={(event) => event.preventDefault()}
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
+        />
+        {mapUnavailable ? (
+          <Box
+            sx={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 2,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              px: 2,
+              bgcolor: "#000",
+            }}
+          >
+            <Typography variant="body2" color="grey.400" align="center">
+              Survey map is not available for this release.
+            </Typography>
+          </Box>
+        ) : null}
+        {mapLoading ? (
+          <CircularProgress
+            size={32}
+            sx={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              zIndex: 2,
+              marginTop: "-16px",
+              marginLeft: "-16px",
+              pointerEvents: "none",
+            }}
+          />
+        ) : null}
+      </Box>
     </Box>
   );
 }
