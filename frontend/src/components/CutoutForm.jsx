@@ -1176,7 +1176,7 @@ export default function CutoutForm({
 
         {hasSkyMap ? (
           <Grid size={{ xs: 12, md: 7 }} sx={{ display: "flex" }}>
-            <Card elevation={2} sx={{ ...cardSx, p: 2 }}>
+            <Card elevation={2} sx={{ ...cardSx, p: 0, overflow: "hidden" }}>
               <AladinViewer
                 key={survey.hips.url}
                 hips={survey.hips}

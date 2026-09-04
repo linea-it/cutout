@@ -1,7 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import CircularProgress from "@mui/material/CircularProgress";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
+import CropSquareIcon from "@mui/icons-material/CropSquare";
+import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
+import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
+import { useTheme } from "@mui/material/styles";
 
 // Cutout API still caps radius at 30'; Aladin FoV itself is free for exploring the footprint.
 const MAX_CUTOUT_RADIUS_ARCMIN = 30;
@@ -52,8 +59,160 @@ function radiusToFovDeg(radiusArcmin) {
   return clampExploreFovDeg((2 * Number(radiusArcmin)) / 60);
 }
 
+function themePaddingPx(theme) {
+  const raw = theme.spacing(2);
+  const value = typeof raw === "number" ? raw : Number.parseFloat(raw);
+  return Number.isFinite(value) ? value : 16;
+}
+
 function fovToRadiusArcmin(fovDeg) {
   return Number((((Number(fovDeg) * 60) / 2)).toFixed(3));
+}
+
+/** On-sky square (astrocut): equal angular size in RA and Dec. ΔRA is /cos(Dec). */
+function stampSquareVertices(raDeg, decDeg, radiusArcmin) {
+  const halfDeg = Number(radiusArcmin) / 60;
+  const ra0 = Number(raDeg);
+  const dec0 = Number(decDeg);
+  const cosDec = Math.cos((dec0 * Math.PI) / 180);
+  const halfRa = halfDeg / Math.max(Math.abs(cosDec), 1e-6);
+  return [
+    [ra0 - halfRa, dec0 - halfDeg],
+    [ra0 + halfRa, dec0 - halfDeg],
+    [ra0 + halfRa, dec0 + halfDeg],
+    [ra0 - halfRa, dec0 + halfDeg],
+    [ra0 - halfRa, dec0 - halfDeg],
+  ];
+}
+
+function readFovDeg(aladin) {
+  const fov = aladin && typeof aladin.getFov === "function" ? aladin.getFov() : null;
+  if (Array.isArray(fov)) {
+    const lon = Number(fov[0]);
+    const lat = Number(fov[1]);
+    return [lon, Number.isFinite(lat) && lat > 0 ? lat : lon];
+  }
+  const value = Number(fov);
+  return [value, value];
+}
+
+function viewRadiusArcmin(aladin) {
+  const [fovLon] = readFovDeg(aladin);
+  return fovToRadiusArcmin(fovLon);
+}
+
+function overlayRadiusArcmin(aladin, formRadiusRaw) {
+  const formRadius = Number(formRadiusRaw);
+  const viewRadius = viewRadiusArcmin(aladin);
+  if (Number.isFinite(viewRadius) && viewRadius >= MAX_CUTOUT_RADIUS_ARCMIN) {
+    return MAX_CUTOUT_RADIUS_ARCMIN;
+  }
+  if (Number.isFinite(viewRadius) && viewRadius > 0) {
+    return viewRadius;
+  }
+  if (!Number.isFinite(formRadius) || formRadius <= 0) {
+    return MAX_CUTOUT_RADIUS_ARCMIN;
+  }
+  return Math.min(formRadius, MAX_CUTOUT_RADIUS_ARCMIN);
+}
+
+/** Pixel inset only while the stamp fills the view. At/past 30' use the true on-sky size. */
+function paddedOverlayRadiusArcmin(aladin, container, formRadiusRaw, padPx) {
+  const scientific = overlayRadiusArcmin(aladin, formRadiusRaw);
+  const viewRadius = viewRadiusArcmin(aladin);
+  if (viewRadius >= MAX_CUTOUT_RADIUS_ARCMIN || scientific >= MAX_CUTOUT_RADIUS_ARCMIN) {
+    return MAX_CUTOUT_RADIUS_ARCMIN;
+  }
+  if (!aladin || !container) {
+    return scientific;
+  }
+  const [fovLon, fovLat] = readFovDeg(aladin);
+  const fovMin = Math.min(fovLon, fovLat);
+  const shortPx = Math.min(container.clientWidth, container.clientHeight);
+  if (!Number.isFinite(fovMin) || fovMin <= 0 || shortPx <= 0) {
+    return scientific;
+  }
+  const maxPx = shortPx - 2 * padPx;
+  if (maxPx <= 1) {
+    return scientific;
+  }
+  const sideDeg = (2 * scientific) / 60;
+  const stampPx = (sideDeg * shortPx) / fovMin;
+  if (stampPx <= maxPx) {
+    return scientific;
+  }
+  const drawnSideDeg = (maxPx * fovMin) / shortPx;
+  return (drawnSideDeg * 60) / 2;
+}
+
+function addOverlayShape(overlay, shape) {
+  if (typeof overlay.addFootprints === "function") {
+    overlay.addFootprints(Array.isArray(shape) ? shape : [shape]);
+  } else if (typeof overlay.add === "function") {
+    overlay.add(shape);
+  }
+}
+
+const overlayDrawKeys = new WeakMap();
+
+function refreshAladin(aladin) {
+  if (!aladin) {
+    return;
+  }
+  if (aladin.view && typeof aladin.view.requestRedraw === "function") {
+    aladin.view.requestRedraw();
+  } else if (typeof aladin.resize === "function") {
+    aladin.resize();
+  }
+}
+
+function redrawCutoutStamp(aladin, overlay, stamp) {
+  const A = window.A;
+  if (!aladin || !overlay || !A) {
+    return;
+  }
+  if (!stamp.mode || stamp.mode === "off") {
+    if (typeof overlay.removeAll === "function") {
+      overlay.removeAll();
+    }
+    overlayDrawKeys.set(overlay, "off");
+    if (typeof overlay.hide === "function") {
+      overlay.hide();
+    }
+    refreshAladin(aladin);
+    return;
+  }
+  if (typeof overlay.show === "function") {
+    overlay.show();
+  }
+  const raVal = Number(stamp.ra);
+  const decVal = Number(stamp.dec);
+  if (!Number.isFinite(raVal) || !Number.isFinite(decVal)) {
+    return;
+  }
+  const radius = paddedOverlayRadiusArcmin(
+    aladin,
+    stamp.container,
+    stamp.radiusArcmin,
+    stamp.padPx || 16,
+  );
+  const drawKey = `${stamp.mode}:${raVal.toFixed(5)}:${decVal.toFixed(5)}:${radius.toFixed(4)}:${stamp.color}`;
+  if (overlayDrawKeys.get(overlay) === drawKey) {
+    return;
+  }
+  overlayDrawKeys.set(overlay, drawKey);
+  if (typeof overlay.removeAll === "function") {
+    overlay.removeAll();
+  }
+  if (Object.prototype.hasOwnProperty.call(overlay, "color")) {
+    overlay.color = stamp.color;
+  }
+  const style = { color: stamp.color, fillOpacity: 0, lineWidth: 2 };
+  if (stamp.mode === "circle" && typeof A.circle === "function") {
+    addOverlayShape(overlay, A.circle(raVal, decVal, radius / 60, style));
+  } else if (typeof A.polygon === "function") {
+    addOverlayShape(overlay, A.polygon(stampSquareVertices(raVal, decVal, radius), style));
+  }
 }
 
 /**
@@ -69,22 +228,72 @@ export default function AladinViewer({
   onCenterChange,
   onRadiusChange,
 }) {
+  const theme = useTheme();
+  const overlayColor = theme.palette.primary.main;
+  const overlayPadPx = themePaddingPx(theme);
+  const overlayPadPxRef = useRef(overlayPadPx);
+  overlayPadPxRef.current = overlayPadPx;
   const containerRef = useRef(null);
   const aladinRef = useRef(null);
   const surveyRef = useRef(null);
+  const overlayRef = useRef(null);
+  const stampRef = useRef({ ra, dec, radiusArcmin, color: overlayColor });
   const syncingRef = useRef(false);
   const readyRef = useRef(false);
   const [mapLoading, setMapLoading] = useState(true);
   const [mapUnavailable, setMapUnavailable] = useState(false);
+  const [overlayMode, setOverlayMode] = useState("square");
   const callbacksRef = useRef({ onCenterChange, onRadiusChange });
 
   useEffect(() => {
     callbacksRef.current = { onCenterChange, onRadiusChange };
   }, [onCenterChange, onRadiusChange]);
 
+  stampRef.current = {
+    ra,
+    dec,
+    radiusArcmin,
+    color: overlayColor,
+    mode: overlayMode,
+    container: containerRef.current,
+    padPx: overlayPadPx,
+  };
+
   useEffect(() => {
     let cancelled = false;
     let resizeObserver;
+    let overlayRaf = 0;
+    let zoomSettleTimer = 0;
+    let zooming = false;
+    const drawStampNow = () => {
+      const aladin = aladinRef.current;
+      if (!aladin || typeof aladin.getRaDec !== "function") {
+        return;
+      }
+      const [raNow, decNow] = aladin.getRaDec();
+      redrawCutoutStamp(aladin, overlayRef.current, {
+        ...stampRef.current,
+        ra: raNow,
+        dec: decNow,
+        container: containerRef.current,
+        padPx: overlayPadPxRef.current,
+      });
+    };
+    const queueStampRedraw = () => {
+      if (zooming) {
+        return;
+      }
+      if (overlayRaf) {
+        window.cancelAnimationFrame(overlayRaf);
+      }
+      overlayRaf = window.requestAnimationFrame(() => {
+        overlayRaf = 0;
+        if (cancelled || zooming) {
+          return;
+        }
+        drawStampNow();
+      });
+    };
     setMapLoading(true);
     setMapUnavailable(false);
 
@@ -122,7 +331,9 @@ export default function AladinViewer({
         const A = window.A;
         const initialRa = Number.isFinite(Number(ra)) ? Number(ra) : 0.5;
         const initialDec = Number.isFinite(Number(dec)) ? Number(dec) : 2.15;
-        const initialFov = radiusToFovDeg(radiusArcmin || 1);
+        const initialFov = radiusToFovDeg(
+          Math.min(Number(radiusArcmin) || 1, MAX_CUTOUT_RADIUS_ARCMIN),
+        );
         const aladin = A.aladin(containerRef.current, {
           // Never omit `survey`: Aladin would load DSS2 as a fallback.
           survey: hips.url,
@@ -182,6 +393,17 @@ export default function AladinViewer({
           setMapUnavailable(true);
         });
 
+        if (typeof A.graphicOverlay === "function") {
+          const overlay = A.graphicOverlay({
+            name: "cutout-stamp",
+            color: stampRef.current.color,
+            lineWidth: 2,
+          });
+          aladin.addOverlay(overlay);
+          overlayRef.current = overlay;
+          redrawCutoutStamp(aladin, overlay, stampRef.current);
+        }
+
         const blockContextMenu = (event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -193,32 +415,28 @@ export default function AladinViewer({
           if (syncingRef.current) {
             return;
           }
-          const [fovLon] = aladin.getFov();
-          const exploreFov = clampExploreFovDeg(fovLon);
-          if (Math.abs(exploreFov - fovLon) > 1e-6) {
-            syncingRef.current = true;
-            aladin.setFov(exploreFov);
-            syncingRef.current = false;
-          }
           const [raNow, decNow] = aladin.getRaDec();
           callbacksRef.current.onCenterChange?.(raNow, decNow);
+          queueStampRedraw();
         };
 
         const pushRadiusFromAladin = () => {
           if (syncingRef.current) {
             return;
           }
-          const [fovLon] = aladin.getFov();
-          const exploreFov = clampExploreFovDeg(fovLon);
-          if (Math.abs(exploreFov - fovLon) > 1e-6) {
-            syncingRef.current = true;
-            aladin.setFov(exploreFov);
-            syncingRef.current = false;
-          }
-          const radiusNow = fovToRadiusArcmin(exploreFov);
+          const radiusNow = viewRadiusArcmin(aladin);
           if (radiusNow <= MAX_CUTOUT_RADIUS_ARCMIN) {
             callbacksRef.current.onRadiusChange?.(Math.max(0.1, radiusNow));
           }
+          zooming = true;
+          window.clearTimeout(zoomSettleTimer);
+          zoomSettleTimer = window.setTimeout(() => {
+            zoomSettleTimer = 0;
+            zooming = false;
+            if (!cancelled) {
+              drawStampNow();
+            }
+          }, 40);
         };
 
         aladin.on("positionChanged", pushFromAladin);
@@ -232,7 +450,10 @@ export default function AladinViewer({
         });
         if (typeof ResizeObserver !== "undefined" && containerRef.current) {
           resizeObserver = new ResizeObserver(() => {
-            if (!cancelled && typeof aladin.resize === "function") {
+            if (cancelled) {
+              return;
+            }
+            if (typeof aladin.resize === "function") {
               aladin.resize();
             }
           });
@@ -251,6 +472,10 @@ export default function AladinViewer({
     return () => {
       cancelled = true;
       readyRef.current = false;
+      if (overlayRaf) {
+        window.cancelAnimationFrame(overlayRaf);
+      }
+      window.clearTimeout(zoomSettleTimer);
       if (resizeObserver) {
         resizeObserver.disconnect();
       }
@@ -264,6 +489,7 @@ export default function AladinViewer({
       }
       aladinRef.current = null;
       surveyRef.current = null;
+      overlayRef.current = null;
     };
     // Re-init when the survey HiPS URL changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -293,11 +519,19 @@ export default function AladinViewer({
     } finally {
       window.setTimeout(() => {
         syncingRef.current = false;
+        redrawCutoutStamp(aladinRef.current, overlayRef.current, stampRef.current);
       }, 80);
     }
     // Apply form RA/Dec/radius only when the user clicks search.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seekId]);
+
+  useEffect(() => {
+    if (!readyRef.current || mapUnavailable) {
+      return;
+    }
+    redrawCutoutStamp(aladinRef.current, overlayRef.current, stampRef.current);
+  }, [overlayColor, overlayMode, mapUnavailable]);
 
   return (
     <Box sx={{ width: "100%", height: "100%", minHeight: 0, flex: 1, display: "flex", flexDirection: "column" }}>
@@ -311,8 +545,11 @@ export default function AladinViewer({
           borderRadius: 1,
           overflow: "hidden",
           bgcolor: "#000",
-          border: "1px solid",
-          borderColor: "divider",
+          "& .aladin-container, & .aladin-box, & canvas": {
+            border: "none !important",
+            outline: "none !important",
+            boxShadow: "none !important",
+          },
           "& .aladin-location, & .aladin-fov, & .aladin-status, & .aladin-context-menu": {
             display: "none !important",
           },
@@ -354,6 +591,43 @@ export default function AladinViewer({
               pointerEvents: "none",
             }}
           />
+        ) : null}
+        {!mapUnavailable && !mapLoading ? (
+          <ToggleButtonGroup
+            exclusive
+            orientation="vertical"
+            size="small"
+            value={overlayMode}
+            onChange={(_event, next) => {
+              if (next) {
+                setOverlayMode(next);
+              }
+            }}
+            sx={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              zIndex: 3,
+              bgcolor: "background.paper",
+              boxShadow: 1,
+            }}
+          >
+            <Tooltip title="Hide cutout overlay">
+              <ToggleButton value="off" aria-label="Hide cutout overlay">
+                <VisibilityOffOutlinedIcon fontSize="small" />
+              </ToggleButton>
+            </Tooltip>
+            <Tooltip title="FITS stamp (square)">
+              <ToggleButton value="square" aria-label="Show square stamp overlay">
+                <CropSquareIcon fontSize="small" />
+              </ToggleButton>
+            </Tooltip>
+            <Tooltip title="Requested radius (circle)">
+              <ToggleButton value="circle" aria-label="Show circular radius overlay">
+                <RadioButtonUncheckedIcon fontSize="small" />
+              </ToggleButton>
+            </Tooltip>
+          </ToggleButtonGroup>
         ) : null}
       </Box>
     </Box>
