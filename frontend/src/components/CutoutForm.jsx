@@ -22,6 +22,7 @@ import Select from "@mui/material/Select";
 import Stack from "@mui/material/Stack";
 import Switch from "@mui/material/Switch";
 import TextField from "@mui/material/TextField";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import AddIcon from "@mui/icons-material/Add";
 import ClearIcon from "@mui/icons-material/Clear";
@@ -29,6 +30,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DownloadIcon from "@mui/icons-material/Download";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import LoginIcon from "@mui/icons-material/Login";
+import SearchIcon from "@mui/icons-material/Search";
 import PlaylistAddCheckIcon from "@mui/icons-material/PlaylistAddCheck";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import Accordion from "@mui/material/Accordion";
@@ -45,29 +47,32 @@ import JobTray from "./JobTray";
 import { loadStoredJobs, makeJobLabel, saveStoredJobs } from "../jobStorage";
 import JSZip from "jszip";
 
-const LINEA_HIPS_OPTIONS = {
-  requestCredentials: "include",
+// Public HiPS (datasets.linea.org.br) sends ACAO: *; credentials:include is forbidden.
+const PUBLIC_HIPS_OPTIONS = {
+  requestCredentials: "omit",
   requestMode: "cors",
 };
+// Same-origin LSST proxy needs the Cutout session cookie.
+const SESSION_HIPS_OPTIONS = {
+  requestCredentials: "include",
+  requestMode: "same-origin",
+};
 
-const DEFAULT_SKYVIEWER_BASE_HOST = "https://skyviewer.linea.org.br";
-
-function buildSurveys(skyviewerBaseHost) {
-  const baseHost = (skyviewerBaseHost || DEFAULT_SKYVIEWER_BASE_HOST).replace(/\/$/, "");
+function buildSurveys() {
   return [
     {
       id: "des_dr2",
       label: "DES DR2",
       bands: ["g", "r", "i", "z", "Y"],
       rgbPresets: ["gri", "riz", "izY"],
-      defaultRa: "0.5",
-      defaultDec: "2.15",
+      defaultRa: "41.22",
+      defaultDec: "-35.56",
       hips: {
         id: "DES_DR2_IRG_LIneA",
         name: "DES DR2 IRG at LIneA",
         url: "https://datasets.linea.org.br/data/releases/des/dr2/images/hips/",
         cooFrame: "equatorial",
-        options: LINEA_HIPS_OPTIONS,
+        options: { ...PUBLIC_HIPS_OPTIONS, imgFormat: "png" },
       },
     },
     {
@@ -77,15 +82,15 @@ function buildSurveys(skyviewerBaseHost) {
       bands: ["u", "g", "r", "i", "z", "y"],
       rgbPresets: ["gri", "riz", "izy"],
       // Sky Viewer: "02 39 35.55 -34 30 38.3"
-      defaultRa: "39.898125",
-      defaultDec: "-34.510639",
+      defaultRa: "53.096",
+      defaultDec: "-28.024",
       hips: {
         id: "LSST_DP1_IRG_LIneA",
         name: "LSST DP1 IRG at LIneA",
-        // Igual ao sky-viewer: `${baseHost}/data/releases/lsst/dp1/images/hips`
-        url: `${baseHost}/data/releases/lsst/dp1/images/hips`,
+        // Same-origin proxy (Cutout session + policy lsst_dp1).
+        url: "/data/releases/lsst/dp1/images/hips",
         cooFrame: "equatorial",
-        options: LINEA_HIPS_OPTIONS,
+        options: SESSION_HIPS_OPTIONS,
       },
     },
   ];
@@ -313,10 +318,9 @@ export default function CutoutForm({
   loginUrl,
   csrfToken,
   userGroups = [],
-  skyviewerBaseHost = DEFAULT_SKYVIEWER_BASE_HOST,
 }) {
   const groups = useMemo(() => new Set(userGroups), [userGroups]);
-  const allSurveys = useMemo(() => buildSurveys(skyviewerBaseHost), [skyviewerBaseHost]);
+  const allSurveys = useMemo(() => buildSurveys(), []);
   const surveys = useMemo(
     () =>
       allSurveys.filter((s) => {
@@ -328,11 +332,12 @@ export default function CutoutForm({
       }),
     [allSurveys, groups],
   );
-  const initialSurvey = surveys.find((s) => s.id === "lsst_dp1") || surveys[0] || allSurveys[0];
+  const initialSurvey = surveys.find((s) => s.id === "des_dr2") || surveys[0] || allSurveys[0];
   const [surveyId, setSurveyId] = useState(initialSurvey.id);
   const [ra, setRa] = useState(initialSurvey.defaultRa);
   const [dec, setDec] = useState(initialSurvey.defaultDec);
-  const [radiusArcmin, setRadiusArcmin] = useState("1");
+  const [radiusArcmin, setRadiusArcmin] = useState("5");
+  const [aladinSeekId, setAladinSeekId] = useState(0);
   const [format, setFormat] = useState("fits");
   const [band, setBand] = useState("r");
   const [color, setColor] = useState(false);
@@ -391,6 +396,20 @@ export default function CutoutForm({
     }
     return "";
   }, [raValue, decValue, radiusValue]);
+
+  const seekOnMap = useCallback(() => {
+    if (!hasSkyMap || validationError) {
+      return;
+    }
+    setAladinSeekId((n) => n + 1);
+  }, [hasSkyMap, validationError]);
+
+  const handleSeekKeyDown = (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      seekOnMap();
+    }
+  };
 
   const handleCenterChange = useCallback((nextRa, nextDec) => {
     setRa(Number(nextRa).toFixed(6));
@@ -927,34 +946,71 @@ export default function CutoutForm({
                   </Select>
                 </FormControl>
 
-                <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                  <TextField
-                    label="RA (deg)"
-                    value={ra}
-                    onChange={(e) => setRa(e.target.value)}
-                    fullWidth
-                    size="small"
-                    inputProps={{ inputMode: "decimal" }}
-                  />
-                  <TextField
-                    label="Dec (deg)"
-                    value={dec}
-                    onChange={(e) => setDec(e.target.value)}
-                    fullWidth
-                    size="small"
-                    inputProps={{ inputMode: "decimal" }}
-                  />
+                <Stack spacing={0.5}>
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                    <TextField
+                      label="RA (deg)"
+                      value={ra}
+                      onChange={(e) => setRa(e.target.value)}
+                      onKeyDown={handleSeekKeyDown}
+                      fullWidth
+                      size="small"
+                      inputProps={{ inputMode: "decimal" }}
+                    />
+                    <TextField
+                      label="Dec (deg)"
+                      value={dec}
+                      onChange={(e) => setDec(e.target.value)}
+                      onKeyDown={handleSeekKeyDown}
+                      fullWidth
+                      size="small"
+                      inputProps={{ inputMode: "decimal" }}
+                    />
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary">
+                    ICRS (equatorial), decimal degrees
+                  </Typography>
                 </Stack>
 
-                <TextField
-                  label="Radius (arcmin)"
-                  value={radiusArcmin}
-                  onChange={(e) => setRadiusArcmin(e.target.value)}
-                  fullWidth
-                  size="small"
-                  helperText={`Max ${MAX_RADIUS_ARCMIN}' for cutout · Aladin can zoom out freely`}
-                  inputProps={{ inputMode: "decimal" }}
-                />
+                <Stack direction="row" spacing={1} alignItems="flex-start">
+                  <TextField
+                    label="Radius (arcmin)"
+                    value={radiusArcmin}
+                    onChange={(e) => setRadiusArcmin(e.target.value)}
+                    onKeyDown={handleSeekKeyDown}
+                    fullWidth
+                    size="small"
+                    helperText={
+                      hasSkyMap
+                        ? `Max ${MAX_RADIUS_ARCMIN}' for cutout · click search to apply on the map`
+                        : `Max ${MAX_RADIUS_ARCMIN}' for cutout`
+                    }
+                    inputProps={{ inputMode: "decimal" }}
+                  />
+                  {hasSkyMap ? (
+                    <Tooltip title="Show this field on the map">
+                      <span>
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          disableElevation
+                          aria-label="Show this field on the map"
+                          disabled={Boolean(validationError)}
+                          onClick={seekOnMap}
+                          sx={{
+                            minWidth: 40,
+                            width: 40,
+                            height: 40,
+                            p: 0,
+                            borderRadius: 1,
+                          }}
+                        >
+                          <SearchIcon fontSize="small" />
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  ) : null}
+                </Stack>
 
                 <FormControl>
                   <FormLabel id="format-label">Format</FormLabel>
@@ -1120,13 +1176,14 @@ export default function CutoutForm({
 
         {hasSkyMap ? (
           <Grid size={{ xs: 12, md: 7 }} sx={{ display: "flex" }}>
-            <Card elevation={2} sx={{ ...cardSx, p: 2 }}>
+            <Card elevation={2} sx={{ ...cardSx, p: 0, overflow: "hidden" }}>
               <AladinViewer
                 key={survey.hips.url}
                 hips={survey.hips}
                 ra={raValue}
                 dec={decValue}
-                radiusArcmin={Number.isFinite(radiusValue) ? Math.min(radiusValue, MAX_RADIUS_ARCMIN) : 1}
+                radiusArcmin={radiusArcmin}
+                seekId={aladinSeekId}
                 onCenterChange={handleCenterChange}
                 onRadiusChange={handleRadiusChange}
               />

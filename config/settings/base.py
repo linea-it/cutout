@@ -415,6 +415,8 @@ SPECTACULAR_SETTINGS = {
 # ------------------------------------------------------------------------------
 # Root directory for cutout result files (sync/async). Downloads must stay under this path.
 CUTOUT_RESULTS_ROOT = env.str("CUTOUT_RESULTS_ROOT", default="/data/results")
+# LSST DP1 HiPS tiles (same-origin for Aladin). Mount the archive at this path.
+CUTOUT_HIPS_LSST_DP1_ROOT = env.str("CUTOUT_HIPS_LSST_DP1_ROOT", default="/data/hips/lsst_dp1")
 # All jobs (anonymous and authenticated) are destroyed after this many days.
 CUTOUT_JOB_MAX_AGE_DAYS = env.int("CUTOUT_JOB_MAX_AGE_DAYS", default=7)
 # Extra wait after destruction_time before deleting still-active (QUEUED/EXECUTING/…) jobs.

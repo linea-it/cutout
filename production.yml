@@ -17,6 +17,7 @@ services:
       - production_django_media:/app/cutout/media
       # Certificados SP para assinatura/criptografia SAML2 (djangosaml2)
       - ./config/certificates:/app/config/certificates:ro
+      # Bind-mount DP1 HiPS on the host to CUTOUT_HIPS_LSST_DP1_ROOT (default /data/hips/lsst_dp1).
     depends_on:
       - postgres
       - redis

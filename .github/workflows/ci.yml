@@ -67,7 +67,7 @@ jobs:
         with:
           images: linea/cutout
           tags: |
-            type=sha,format=short
+            type=sha,format=short,prefix=
             type=semver,pattern={{version}}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
           flavor: |
