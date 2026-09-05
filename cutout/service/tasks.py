@@ -14,6 +14,8 @@ from cutout.service.models import Job, Task
     retry_backoff=True,
     retry_jitter=True,
     retry_kwargs={"max_retries": 5},
+    queue="cutout-heavy",
+    acks_late=True,
 )
 def perform_cutout_task(self, job_id: str, task_id: str) -> dict[str, Any]:
     """Celery wrapper for `perform_cutout`. All parameters are read from the Task row in DB."""

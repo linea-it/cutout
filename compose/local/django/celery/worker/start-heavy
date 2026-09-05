@@ -1,0 +1,6 @@
+#!/bin/bash
+
+set -o errexit
+set -o nounset
+
+exec watchfiles --filter python "celery -A config.celery_app worker -Q cutout-heavy -l DEBUG --concurrency=1"

@@ -65,6 +65,15 @@ services:
     ports: []
     command: /start-celeryworker
 
+  celeryworker-heavy:
+    <<: *django
+    depends_on:
+      - django
+    ports: []
+    command: /start-celeryworker-heavy
+    cpus: ${CUTOUT_WORKER_CPUS:-2.0}
+    mem_limit: ${CUTOUT_WORKER_MEMORY:-8g}
+
   celerybeat:
     <<: *django
     depends_on:
