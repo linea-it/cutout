@@ -1,6 +1,7 @@
 """
 Base settings to build other settings files upon.
 """
+
 from pathlib import Path
 
 # Python 3.14 compat: Django 4.2 BaseContext.__copy__ uses copy(super())
@@ -358,6 +359,12 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_TASK_TIME_LIMIT = 15 * 60
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#task-soft-time-limit
 CELERY_TASK_SOFT_TIME_LIMIT = 10 * 60
+CELERY_TASK_DEFAULT_QUEUE = "celery"
+CELERY_TASK_ROUTES = {
+    "cutout.service.tasks.perform_cutout_task": {"queue": "cutout-heavy"},
+}
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_WORKER_MAX_TASKS_PER_CHILD = 20
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#beat-scheduler
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#worker-send-task-events
@@ -421,6 +428,12 @@ CUTOUT_HIPS_LSST_DP1_ROOT = env.str("CUTOUT_HIPS_LSST_DP1_ROOT", default="/data/
 CUTOUT_JOB_MAX_AGE_DAYS = env.int("CUTOUT_JOB_MAX_AGE_DAYS", default=7)
 # Extra wait after destruction_time before deleting still-active (QUEUED/EXECUTING/…) jobs.
 CUTOUT_JOB_ACTIVE_GRACE_HOURS = env.int("CUTOUT_JOB_ACTIVE_GRACE_HOURS", default=6)
+# 0 = detect from cgroup (or host fallback). Overrides never exceed the cgroup.
+CUTOUT_PARALLEL_WORKERS = env.int("CUTOUT_PARALLEL_WORKERS", default=0)
+CUTOUT_TASK_MEMORY_BUDGET_MB = env.int("CUTOUT_TASK_MEMORY_BUDGET_MB", default=0)
+CUTOUT_RGB_BAND_WORKERS = env.int("CUTOUT_RGB_BAND_WORKERS", default=3)
+CUTOUT_PNG_MAX_DIM = env.int("CUTOUT_PNG_MAX_DIM", default=4096)
+CUTOUT_PNG_COMPRESS_LEVEL = env.int("CUTOUT_PNG_COMPRESS_LEVEL", default=6)
 
 # Autenticação Django SAML2 (djangosaml2)
 # ------------------------------------------------------------------------------

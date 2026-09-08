@@ -59,6 +59,13 @@ services:
     image: cutout_production_celeryworker
     command: /start-celeryworker
 
+  celeryworker-heavy:
+    <<: *django
+    image: cutout_production_celeryworker_heavy
+    command: /start-celeryworker-heavy
+    cpus: ${CUTOUT_WORKER_CPUS:-8.0}
+    mem_limit: ${CUTOUT_WORKER_MEMORY:-32g}
+
   celerybeat:
     <<: *django
     image: cutout_production_celerybeat

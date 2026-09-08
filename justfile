@@ -97,7 +97,7 @@ precommit:
 
 # Rebuild app and worker images after dependency changes
 rebuild:
-    {{compose}} build django celeryworker celerybeat flower
+    {{compose}} build django celeryworker celeryworker-heavy celerybeat flower
 
 # Build React form into cutout/static/frontend/ (Django serves it; no compose service)
 frontend-build:
@@ -109,8 +109,8 @@ frontend-watch:
 
 # Start only app + queue stack needed for sync cutout development
 up-core:
-    {{compose}} up -d django postgres redis celeryworker celerybeat flower
+    {{compose}} up -d django postgres redis celeryworker celeryworker-heavy celerybeat flower
 
 # Stop only app + queue stack
 stop-core:
-    {{compose}} stop django postgres redis celeryworker celerybeat flower
+    {{compose}} stop django postgres redis celeryworker celeryworker-heavy celerybeat flower
