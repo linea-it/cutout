@@ -6,6 +6,7 @@
 SKYVIEWER_BASE_HOST=https://skyviewer.linea.org.br
 # HiPS DP1 no mesmo origin do Cutout (montar o archive neste path)
 # CUTOUT_HIPS_LSST_DP1_ROOT=/data/hips/lsst_dp1
+# CUTOUT_HIPS_LSST_DP2_ROOT=/data/hips/lsst_dp2
 
 # Geral / SAML (ver README)
 # ------------------------------------------------------------------------------

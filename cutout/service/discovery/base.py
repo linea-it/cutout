@@ -20,3 +20,20 @@ class FileLocator(ABC):
         band: str | None = None,
     ) -> list[FileDescriptor]:
         """Return files that intersect the requested stencil."""
+
+    def find_files_for_bands(
+        self,
+        *,
+        survey_id: str,
+        stencil: Stencil,
+        bands: list[str],
+    ) -> dict[str, list[FileDescriptor]]:
+        """Return intersecting files for multiple bands.
+
+        Locators with a resident spatial index should override this to run the
+        geometric query once and derive each band's path from the same tiles.
+        """
+        return {band: self.find_files(survey_id=survey_id, stencil=stencil, band=band) for band in bands}
+
+    def preload(self) -> None:
+        """Load any resident discovery data before the process accepts work."""

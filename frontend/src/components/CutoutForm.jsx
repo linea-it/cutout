@@ -93,12 +93,29 @@ function buildSurveys() {
         options: SESSION_HIPS_OPTIONS,
       },
     },
+    {
+      id: "lsst_dp2",
+      label: "LSST DP2",
+      requireGroup: "lsst_dp2",
+      bands: ["u", "g", "r", "i", "z", "y"],
+      rgbPresets: ["gri", "riz", "izy"],
+      // Placeholder pointing (DP1 field). Replace when the DP2 HiPS footprint is known.
+      defaultRa: "53.096",
+      defaultDec: "-28.024",
+      hips: {
+        id: "LSST_DP2_IRG_LIneA",
+        name: "LSST DP2 IRG at LIneA",
+        url: "/data/releases/lsst/dp2/images/hips",
+        cooFrame: "equatorial",
+        options: SESSION_HIPS_OPTIONS,
+      },
+    },
   ];
 }
 
 const ALL_BANDS = [...new Set(buildSurveys().flatMap((s) => s.bands))];
 const MAX_RADIUS_ARCMIN = 30;
-const SYNC_RADIUS_LIMIT_ARCMIN = 10;
+const SYNC_RADIUS_LIMIT_ARCMIN = 5;
 const CARD_MIN_HEIGHT = 560;
 const ASYNC_POLL_MS = 3000;
 
@@ -336,7 +353,7 @@ export default function CutoutForm({
   const [surveyId, setSurveyId] = useState(initialSurvey.id);
   const [ra, setRa] = useState(initialSurvey.defaultRa);
   const [dec, setDec] = useState(initialSurvey.defaultDec);
-  const [radiusArcmin, setRadiusArcmin] = useState("5");
+  const [radiusArcmin, setRadiusArcmin] = useState("1");
   const [aladinSeekId, setAladinSeekId] = useState(0);
   const [format, setFormat] = useState("fits");
   const [band, setBand] = useState("r");

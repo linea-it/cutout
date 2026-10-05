@@ -66,6 +66,17 @@ def _find_existing_files(locator: FileLocator, task: Task, stencil: Stencil, ban
     return existing
 
 
+def _existing_descriptor_paths(descriptors, band: str) -> list[str]:
+    if not descriptors:
+        raise ParameterError(f"No files found for band {band} in the requested region")
+
+    candidates = [str(descriptor.file_path) for descriptor in descriptors if descriptor.file_path]
+    existing = [path for path in candidates if Path(path).exists()]
+    if not existing:
+        raise ParameterError(f"No available files on disk for band {band} in the requested region")
+    return existing
+
+
 def _discover_input_files(task: Task) -> InputFiles:
     """Locate the input tiles for a task, per band when color composition is requested."""
     stencil = Stencil.from_dict(task.stencil)
@@ -76,7 +87,17 @@ def _discover_input_files(task: Task) -> InputFiles:
 
     if task.color:
         bands = _parse_rgb_bands(task.rgb_bands or "gri")
-        files_map = {band: _find_existing_files(locator, task, stencil, band) for band in bands}
+        if hasattr(locator, "find_files_for_bands"):
+            descriptors_by_band = locator.find_files_for_bands(
+                survey_id=task.survey_id,
+                stencil=stencil,
+                bands=bands,
+            )
+        else:
+            descriptors_by_band = {
+                band: locator.find_files(survey_id=task.survey_id, stencil=stencil, band=band) for band in bands
+            }
+        files_map = {band: _existing_descriptor_paths(descriptors_by_band[band], band) for band in bands}
         logger.info("[perform_cutout] task_id=%s color bands=%s files=%s", task.id, bands, files_map)
         return files_map
 

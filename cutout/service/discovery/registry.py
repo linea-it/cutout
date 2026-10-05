@@ -3,11 +3,19 @@ from __future__ import annotations
 from .base import FileLocator
 from .des_dr2 import DesDr2FileLocator
 from .lsst_dp1 import LsstDp1FileLocator
+from .lsst_dp2 import LsstDp2FileLocator
 
 _LOCATOR_CLASSES: tuple[type[FileLocator], ...] = (
     DesDr2FileLocator,
     LsstDp1FileLocator,
+    LsstDp2FileLocator,
 )
+
+
+def preload_file_indexes() -> None:
+    """Load every survey index in the current process."""
+    for cls in _LOCATOR_CLASSES:
+        cls().preload()
 
 
 def get_file_locator(survey_id: str, **kwargs) -> FileLocator:

@@ -51,6 +51,16 @@ class _FakeLocator:
         ]
 
 
+class _BatchFakeLocator(_FakeLocator):
+    def __init__(self, input_file: Path):
+        super().__init__(input_file)
+        self.batch_calls = 0
+
+    def find_files_for_bands(self, *, survey_id, stencil, bands):
+        self.batch_calls += 1
+        return {band: self.find_files(survey_id=survey_id, stencil=stencil, band=band) for band in bands}
+
+
 class _FakeEngine:
     def __init__(self, payload: bytes = b"fake fits data"):
         self.payload = payload
@@ -122,6 +132,9 @@ def test_perform_cutout_success_records_result_and_statuses(user, monkeypatch, t
 
 def test_perform_cutout_color_passes_files_per_band(user, monkeypatch, tmp_path):
     engine = _patch_runner(monkeypatch, tmp_path)
+    input_file = tmp_path / "DES0002+0001_r4907p01_g.fits.fz"
+    locator = _BatchFakeLocator(input_file)
+    monkeypatch.setattr(cutout_runner, "get_file_locator", lambda survey_id: locator)
     job, task = _create_job_and_task(
         user,
         tmp_path / "out" / "job_1_rgb.png",
@@ -136,6 +149,7 @@ def test_perform_cutout_color_passes_files_per_band(user, monkeypatch, tmp_path)
     assert isinstance(engine_kwargs["input_files"], dict)
     assert sorted(engine_kwargs["input_files"].keys()) == ["g", "i", "r"]
     assert job.results.get().mime_type == "image/png"
+    assert locator.batch_calls == 1
 
 
 def test_perform_cutout_is_idempotent_for_reruns(user, monkeypatch, tmp_path):

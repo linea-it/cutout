@@ -417,6 +417,8 @@ SPECTACULAR_SETTINGS = {
 CUTOUT_RESULTS_ROOT = env.str("CUTOUT_RESULTS_ROOT", default="/data/results")
 # LSST DP1 HiPS tiles (same-origin for Aladin). Mount the archive at this path.
 CUTOUT_HIPS_LSST_DP1_ROOT = env.str("CUTOUT_HIPS_LSST_DP1_ROOT", default="/data/hips/lsst_dp1")
+# LSST DP2 HiPS tiles. 404 until the archive is mounted at this path.
+CUTOUT_HIPS_LSST_DP2_ROOT = env.str("CUTOUT_HIPS_LSST_DP2_ROOT", default="/data/hips/lsst_dp2")
 # All jobs (anonymous and authenticated) are destroyed after this many days.
 CUTOUT_JOB_MAX_AGE_DAYS = env.int("CUTOUT_JOB_MAX_AGE_DAYS", default=7)
 # Extra wait after destruction_time before deleting still-active (QUEUED/EXECUTING/…) jobs.
