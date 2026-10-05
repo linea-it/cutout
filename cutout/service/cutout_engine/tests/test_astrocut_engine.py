@@ -8,7 +8,7 @@ from astropy.io import fits
 from astropy.wcs import WCS
 
 from cutout.service.cutout_engine import astrocut_engine as astro_module
-from cutout.service.cutout_engine.astrocut_engine import AstrocutEngine
+from cutout.service.cutout_engine.astrocut_engine import AstrocutEngine, _orient_png_for_display
 
 
 def _make_hdu(data, pixel_scale=0.001):
@@ -122,3 +122,32 @@ def test_mosaic_hdus_reprojects_misaligned_tiles(monkeypatch) -> None:
 
     assert len(calls) == 2
     assert result.header["METHOD"] == "reproject_interp + nanmean"
+
+
+def test_png_orientation_moves_north_to_the_first_row():
+    data = np.arange(12, dtype=np.float32).reshape(4, 3)
+    header = _make_hdu(data).header
+    header["CRPIX1"] = 2.0
+    header["CRPIX2"] = 2.5
+
+    oriented, new_header = _orient_png_for_display(data, header)
+
+    assert np.array_equal(oriented, data[::-1])
+    old_coord = WCS(header).pixel_to_world(0, data.shape[0] - 1)
+    new_coord = WCS(new_header).pixel_to_world(0, 0)
+    assert new_coord.ra.deg == pytest.approx(old_coord.ra.deg)
+    assert new_coord.dec.deg == pytest.approx(old_coord.dec.deg)
+    assert float(WCS(new_header).celestial.pixel_scale_matrix[1, 1]) < 0
+
+
+def test_png_orientation_keeps_array_when_north_is_already_first_row():
+    data = np.arange(12, dtype=np.float32).reshape(4, 3)
+    wcs = WCS(naxis=2)
+    wcs.wcs.crpix = [2.0, 2.5]
+    wcs.wcs.crval = [1.0, 2.0]
+    wcs.wcs.cd = [[-0.001, 0.0], [0.0, -0.001]]
+    wcs.wcs.ctype = ["RA---TAN", "DEC--TAN"]
+
+    oriented, _new_header = _orient_png_for_display(data, wcs.to_header())
+
+    assert np.array_equal(oriented, data)

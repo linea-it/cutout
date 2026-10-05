@@ -25,6 +25,42 @@ from .color_composer import COLOR_PARAMS, _arcsinh_stretch, compose_rgb
 _fits_cut_lock = threading.Lock()
 
 
+def _orient_png_for_display(data: np.ndarray, header: fits.Header | None):
+    """Put north on the first row so a PNG viewer matches the HiPS.
+
+    With CD2_2 > 0 the northern pixels are the last FITS rows. PNG viewers draw
+    row 0 at the top, which leaves that cutout upside down. East stays on the
+    left because the RA axis is unchanged.
+    """
+    if header is None:
+        return data, header
+
+    ctype2 = str(header.get("CTYPE2", "")).upper()
+    if "DEC" not in ctype2 and "LAT" not in ctype2:
+        return data, header
+
+    wcs = WCS(header).celestial
+    latitude_per_row = float(wcs.pixel_scale_matrix[1, 1])
+    if latitude_per_row <= 0:
+        return data, header
+
+    data = np.flipud(data)
+    wcs.wcs.crpix[1] = data.shape[0] + 1 - wcs.wcs.crpix[1]
+    if wcs.wcs.has_cd():
+        cd = np.array(wcs.wcs.cd, dtype=float, copy=True)
+        cd[:, 1] *= -1
+        wcs.wcs.cd = cd
+    else:
+        pc = np.array(wcs.wcs.pc, dtype=float, copy=True)
+        pc[:, 1] *= -1
+        wcs.wcs.pc = pc
+
+    header = header.copy()
+    for key, value in wcs.to_header().items():
+        header[key] = value
+    return data, header
+
+
 def _mosaic_hdus(
     data_hdus: list,
     *,
@@ -323,6 +359,7 @@ class AstrocutEngine(CutoutEngine):
             arrays = [a[:min_rows, :min_cols] for a in arrays]
 
             rgb = compose_rgb(arrays, bands, source_id)
+            rgb, wcs_header = _orient_png_for_display(rgb, wcs_header)
 
             # --- Embed provenance + WCS into PNG ---
             pnginfo = PngImagePlugin.PngInfo()
@@ -402,6 +439,8 @@ class AstrocutEngine(CutoutEngine):
                 arr = (arr / arr.max() * 255.0).astype("uint8")
             else:
                 arr = arr.astype("uint8")
+
+        arr, wcs_header = _orient_png_for_display(arr, wcs_header)
 
         # --- Embed provenance + WCS into PNG ---
         pnginfo = PngImagePlugin.PngInfo()
