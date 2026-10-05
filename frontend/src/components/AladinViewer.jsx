@@ -6,6 +6,8 @@ import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import CropSquareIcon from "@mui/icons-material/CropSquare";
+import ExploreOutlinedIcon from "@mui/icons-material/ExploreOutlined";
+import GridOnOutlinedIcon from "@mui/icons-material/GridOnOutlined";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
 import { useTheme } from "@mui/material/styles";
@@ -103,6 +105,124 @@ function refreshAladin(aladin) {
   }
 }
 
+function resetAladinNorthUp(aladin) {
+  if (!aladin) {
+    return;
+  }
+  const wasm = aladin.view?.wasm;
+  // Bypass View.setRotation early-return when getRotation() is already ~0
+  // but the camera heading is not north-up after panning.
+  if (typeof wasm?.setRotation === "function") {
+    wasm.setRotation(0);
+  } else if (typeof aladin.setRotation === "function") {
+    aladin.setRotation(0);
+  } else if (typeof aladin.setViewCenter2NorthPoleAngle === "function") {
+    aladin.setViewCenter2NorthPoleAngle(0);
+  }
+  refreshAladin(aladin);
+}
+
+function readAladinRotationDeg(aladin) {
+  try {
+    const value = aladin?.view?.wasm?.getRotation?.() ?? aladin?.getRotation?.();
+    const num = Number(value);
+    return Number.isFinite(num) ? num : 0;
+  } catch (err) {
+    return 0;
+  }
+}
+
+function writeAladinRotationDeg(aladin, deg) {
+  const wasm = aladin?.view?.wasm;
+  if (typeof wasm?.setRotation === "function") {
+    wasm.setRotation(deg);
+  } else if (typeof aladin?.setRotation === "function") {
+    aladin.setRotation(deg);
+  }
+  refreshAladin(aladin);
+}
+
+function bindRightDragRotate(aladin, host) {
+  if (!aladin || !host) {
+    return () => {};
+  }
+  const drag = { active: false, lastAngle: 0, rotation: 0 };
+
+  const angleFromCenter = (event) => {
+    const box = host.getBoundingClientRect();
+    return (Math.atan2(event.clientY - (box.top + box.height / 2), event.clientX - (box.left + box.width / 2)) * 180) / Math.PI;
+  };
+
+  const onContextMenu = (event) => {
+    event.preventDefault();
+  };
+
+  const onMouseDown = (event) => {
+    if (event.button !== 2) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    drag.active = true;
+    drag.lastAngle = angleFromCenter(event);
+    drag.rotation = readAladinRotationDeg(aladin);
+  };
+
+  const onMouseMove = (event) => {
+    if (!drag.active) {
+      return;
+    }
+    event.preventDefault();
+    const angle = angleFromCenter(event);
+    let delta = angle - drag.lastAngle;
+    if (delta > 180) {
+      delta -= 360;
+    } else if (delta < -180) {
+      delta += 360;
+    }
+    drag.lastAngle = angle;
+    drag.rotation += delta;
+    writeAladinRotationDeg(aladin, drag.rotation);
+  };
+
+  const onMouseUp = () => {
+    drag.active = false;
+  };
+
+  host.addEventListener("contextmenu", onContextMenu, true);
+  host.addEventListener("mousedown", onMouseDown, true);
+  window.addEventListener("mousemove", onMouseMove, true);
+  window.addEventListener("mouseup", onMouseUp, true);
+  window.addEventListener("blur", onMouseUp);
+
+  return () => {
+    drag.active = false;
+    host.removeEventListener("contextmenu", onContextMenu, true);
+    host.removeEventListener("mousedown", onMouseDown, true);
+    window.removeEventListener("mousemove", onMouseMove, true);
+    window.removeEventListener("mouseup", onMouseUp, true);
+    window.removeEventListener("blur", onMouseUp);
+  };
+}
+
+const GRID_COLOR = "#6fdc7a";
+
+function applyAladinCooGrid(aladin, enabled) {
+  if (!aladin) {
+    return;
+  }
+  if (typeof aladin.setCooGrid === "function") {
+    aladin.setCooGrid({
+      enabled: Boolean(enabled),
+      color: GRID_COLOR,
+      opacity: 0.85,
+      thickness: 1,
+      showLabels: true,
+      labelSize: 14,
+    });
+  }
+}
+
 function redrawCutoutStamp(aladin, overlay, stamp) {
   const A = window.A;
   if (!aladin || !overlay || !A) {
@@ -175,6 +295,7 @@ export default function AladinViewer({
   const [mapLoading, setMapLoading] = useState(true);
   const [mapUnavailable, setMapUnavailable] = useState(false);
   const [overlayMode, setOverlayMode] = useState("off");
+  const [showCooGrid, setShowCooGrid] = useState(false);
   const callbacksRef = useRef({ onCenterChange, onRadiusChange });
 
   useEffect(() => {
@@ -192,6 +313,7 @@ export default function AladinViewer({
   useEffect(() => {
     let cancelled = false;
     let resizeObserver;
+    let unbindRightDragRotate = () => {};
     let overlayRaf = 0;
     let zoomSettleTimer = 0;
     let centerSettleTimer = 0;
@@ -276,7 +398,16 @@ export default function AladinViewer({
           showFullscreenControl: false,
           showLayersControl: false,
           showGotoControl: false,
+          showCooGrid: false,
           showCooGridControl: false,
+          gridOptions: {
+            enabled: false,
+            color: GRID_COLOR,
+            opacity: 0.85,
+            thickness: 1,
+            showLabels: true,
+            labelSize: 14,
+          },
           showProjectionControl: false,
           showFrame: false,
           showFov: false,
@@ -340,13 +471,12 @@ export default function AladinViewer({
             aladin,
           ),
         );
-
-        const blockContextMenu = (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-        };
-        containerRef.current.addEventListener("contextmenu", blockContextMenu, true);
-        containerRef.current.__aladinBlockContextMenu = blockContextMenu;
+        if (typeof aladin.setCooGrid === "function") {
+          applyAladinCooGrid(aladin, false);
+        }
+        if (typeof aladin.setRotation === "function") {
+          aladin.setRotation(0);
+        }
 
         const pushFromAladin = () => {
           if (syncingRef.current) {
@@ -381,6 +511,7 @@ export default function AladinViewer({
 
         aladin.on("positionChanged", pushFromAladin);
         aladin.on("zoomChanged", pushRadiusFromAladin);
+        unbindRightDragRotate = bindRightDragRotate(aladin, containerRef.current);
         readyRef.current = true;
         markReady();
         window.requestAnimationFrame(() => {
@@ -412,6 +543,7 @@ export default function AladinViewer({
     return () => {
       cancelled = true;
       readyRef.current = false;
+      unbindRightDragRotate();
       if (overlayRaf) {
         window.cancelAnimationFrame(overlayRaf);
       }
@@ -421,11 +553,6 @@ export default function AladinViewer({
         resizeObserver.disconnect();
       }
       if (containerRef.current) {
-        const blockContextMenu = containerRef.current.__aladinBlockContextMenu;
-        if (blockContextMenu) {
-          containerRef.current.removeEventListener("contextmenu", blockContextMenu, true);
-          delete containerRef.current.__aladinBlockContextMenu;
-        }
         containerRef.current.innerHTML = "";
       }
       aladinRef.current = null;
@@ -435,6 +562,13 @@ export default function AladinViewer({
     // Re-init when the survey HiPS URL changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hips?.url]);
+
+  useEffect(() => {
+    if (!readyRef.current) {
+      return;
+    }
+    applyAladinCooGrid(aladinRef.current, showCooGrid);
+  }, [showCooGrid]);
 
   useEffect(() => {
     if (!seekId) {
@@ -508,16 +642,12 @@ export default function AladinViewer({
             outline: "none !important",
             boxShadow: "none !important",
           },
-          "& .aladin-location, & .aladin-fov, & .aladin-status, & .aladin-context-menu": {
+          "& .aladin-location, & .aladin-fov, & .aladin-status, & .aladin-context-menu, & .aladin-grid-control": {
             display: "none !important",
           },
         }}
       >
-        <div
-          ref={containerRef}
-          onContextMenu={(event) => event.preventDefault()}
-          style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
-        />
+        <div ref={containerRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
         {mapUnavailable ? (
           <Box
             sx={{
@@ -551,41 +681,88 @@ export default function AladinViewer({
           />
         ) : null}
         {!mapUnavailable && !mapLoading ? (
-          <ToggleButtonGroup
-            exclusive
-            orientation="vertical"
-            size="small"
-            value={overlayMode}
-            onChange={(_event, next) => {
-              if (next) {
-                setOverlayMode(next);
-              }
-            }}
+          <Box
             sx={{
               position: "absolute",
               top: 8,
               right: 8,
-              zIndex: 3,
+              zIndex: 1200,
+              pointerEvents: "auto",
               bgcolor: "background.paper",
               boxShadow: 1,
+              borderRadius: 1,
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: "column",
             }}
           >
-            <Tooltip title="Hide cutout overlay">
-              <ToggleButton value="off" aria-label="Hide cutout overlay">
-                <VisibilityOffOutlinedIcon fontSize="small" />
+            <ToggleButtonGroup
+              exclusive
+              orientation="vertical"
+              size="small"
+              value={overlayMode}
+              onChange={(_event, next) => {
+                if (next) {
+                  setOverlayMode(next);
+                }
+              }}
+              sx={{
+                "& .MuiToggleButtonGroup-grouped": {
+                  margin: 0,
+                  border: 0,
+                  borderRadius: 0,
+                },
+              }}
+            >
+              <Tooltip disableInteractive title="Hide cutout overlay">
+                <ToggleButton value="off" aria-label="Hide cutout overlay">
+                  <VisibilityOffOutlinedIcon fontSize="small" />
+                </ToggleButton>
+              </Tooltip>
+              <Tooltip disableInteractive title="FITS stamp (square)">
+                <ToggleButton value="square" aria-label="Show square stamp overlay">
+                  <CropSquareIcon fontSize="small" />
+                </ToggleButton>
+              </Tooltip>
+              <Tooltip disableInteractive title="Requested radius reference (circle)">
+                <ToggleButton value="circle" aria-label="Show circular radius reference">
+                  <RadioButtonUncheckedIcon fontSize="small" />
+                </ToggleButton>
+              </Tooltip>
+            </ToggleButtonGroup>
+            <Box role="separator" sx={{ height: "1px", bgcolor: "divider", mx: 0.75 }} />
+            <Tooltip disableInteractive title={showCooGrid ? "Hide RA/Dec grid" : "Show RA/Dec grid"}>
+              <ToggleButton
+                size="small"
+                value="grid"
+                selected={showCooGrid}
+                aria-label={showCooGrid ? "Hide RA/Dec grid" : "Show RA/Dec grid"}
+                onClick={() => setShowCooGrid((prev) => !prev)}
+                sx={{ border: 0, borderRadius: 0 }}
+              >
+                <GridOnOutlinedIcon fontSize="small" />
               </ToggleButton>
             </Tooltip>
-            <Tooltip title="FITS stamp (square)">
-              <ToggleButton value="square" aria-label="Show square stamp overlay">
-                <CropSquareIcon fontSize="small" />
+            <Tooltip disableInteractive title="Reset north up. Right-drag the map to rotate.">
+              <ToggleButton
+                size="small"
+                value="north"
+                aria-label="Reset north up"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  resetAladinNorthUp(aladinRef.current);
+                }}
+                sx={{ border: 0, borderRadius: 0 }}
+              >
+                <ExploreOutlinedIcon fontSize="small" />
               </ToggleButton>
             </Tooltip>
-            <Tooltip title="Requested radius reference (circle)">
-              <ToggleButton value="circle" aria-label="Show circular radius reference">
-                <RadioButtonUncheckedIcon fontSize="small" />
-              </ToggleButton>
-            </Tooltip>
-          </ToggleButtonGroup>
+          </Box>
         ) : null}
       </Box>
     </Box>

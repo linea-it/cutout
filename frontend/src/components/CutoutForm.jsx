@@ -115,7 +115,7 @@ function buildSurveys() {
 
 const ALL_BANDS = [...new Set(buildSurveys().flatMap((s) => s.bands))];
 const MAX_RADIUS_ARCMIN = 30;
-const SYNC_RADIUS_LIMIT_ARCMIN = 10;
+const SYNC_RADIUS_LIMIT_ARCMIN = 5;
 const CARD_MIN_HEIGHT = 560;
 const ASYNC_POLL_MS = 3000;
 
@@ -353,7 +353,7 @@ export default function CutoutForm({
   const [surveyId, setSurveyId] = useState(initialSurvey.id);
   const [ra, setRa] = useState(initialSurvey.defaultRa);
   const [dec, setDec] = useState(initialSurvey.defaultDec);
-  const [radiusArcmin, setRadiusArcmin] = useState("5");
+  const [radiusArcmin, setRadiusArcmin] = useState("1");
   const [aladinSeekId, setAladinSeekId] = useState(0);
   const [format, setFormat] = useState("fits");
   const [band, setBand] = useState("r");
