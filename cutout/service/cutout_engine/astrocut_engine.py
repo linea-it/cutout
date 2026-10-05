@@ -33,11 +33,16 @@ def _mosaic_hdus(
     input_files: list[str],
     ref_header: fits.Header,
 ) -> fits.PrimaryHDU:
-    """Reproject data HDUs onto a common grid. Returns a single PrimaryHDU."""
+    """Combine data HDUs on a shared pixel grid or reproject them if needed."""
 
     print(f"[astrocut] _mosaic_hdus: combining {len(data_hdus)} tiles")
 
     ref_wcs = WCS(ref_header)
+    direct_offsets = _find_integer_grid_offsets(data_hdus, center, ref_wcs)
+    if direct_offsets is not None:
+        print("[astrocut] _mosaic_hdus: using direct aligned-grid mosaic")
+        return _mosaic_aligned_hdus(data_hdus, direct_offsets, input_files, ref_header)
+
     pixel_scale = abs(ref_wcs.proj_plane_pixel_scales()[0].to_value(u.deg))
 
     if hasattr(cutout_size, "unit"):
@@ -85,6 +90,101 @@ def _mosaic_hdus(
     return fits.PrimaryHDU(data=result, header=out_header)
 
 
+def _find_integer_grid_offsets(data_hdus: list, center: SkyCoord, ref_wcs: WCS) -> list[tuple[int, int]] | None:
+    """Return pixel offsets for directly combinable HDUs, or ``None``."""
+
+    ref_hdu = data_hdus[0][1]
+    ref_data = np.asarray(ref_hdu.data)
+    if ref_data.ndim != 2:
+        return None
+
+    ref_celestial = ref_wcs.celestial
+    ref_matrix = ref_celestial.pixel_scale_matrix
+    ref_ctype = tuple(ref_celestial.wcs.ctype)
+    height, width = ref_data.shape
+    sample_x = np.array([0.0, width - 1.0, 0.0, width - 1.0])
+    sample_y = np.array([0.0, 0.0, height - 1.0, height - 1.0])
+    sample_world = ref_celestial.pixel_to_world(sample_x, sample_y)
+    ref_center_pixel = np.asarray(ref_celestial.world_to_pixel(center), dtype=float)
+    offsets: list[tuple[int, int]] = []
+
+    for _idx, hdu in data_hdus:
+        data = np.asarray(hdu.data)
+        if data.shape != ref_data.shape or data.ndim != 2:
+            return None
+
+        wcs = WCS(hdu.header).celestial
+        if tuple(wcs.wcs.ctype) != ref_ctype:
+            return None
+        if not np.allclose(wcs.pixel_scale_matrix, ref_matrix, rtol=0.0, atol=1e-10):
+            return None
+
+        center_pixel = np.asarray(wcs.world_to_pixel(center), dtype=float)
+        offset = center_pixel - ref_center_pixel
+        integer_offset = np.rint(offset).astype(int)
+        if not np.allclose(offset, integer_offset, rtol=0.0, atol=1e-3):
+            return None
+
+        mapped_x, mapped_y = wcs.world_to_pixel(sample_world)
+        if not np.allclose(mapped_x, sample_x + offset[0], rtol=0.0, atol=1e-3):
+            return None
+        if not np.allclose(mapped_y, sample_y + offset[1], rtol=0.0, atol=1e-3):
+            return None
+        offsets.append((int(integer_offset[0]), int(integer_offset[1])))
+
+    return offsets
+
+
+def _mosaic_aligned_hdus(
+    data_hdus: list,
+    offsets: list[tuple[int, int]],
+    input_files: list[str],
+    ref_header: fits.Header,
+) -> fits.PrimaryHDU:
+    """Combine HDUs that share a pixel grid, avoiding interpolation."""
+
+    height, width = np.asarray(data_hdus[0][1].data).shape
+    total = np.zeros((height, width), dtype=np.float64)
+    counts = np.zeros((height, width), dtype=np.uint16)
+
+    for (_idx, hdu), (offset_x, offset_y) in zip(data_hdus, offsets):
+        data = np.asarray(hdu.data, dtype=np.float32)
+        src_x_start = max(0, offset_x)
+        src_x_stop = min(width, width + offset_x)
+        src_y_start = max(0, offset_y)
+        src_y_stop = min(height, height + offset_y)
+        dst_x_start = max(0, -offset_x)
+        dst_x_stop = dst_x_start + (src_x_stop - src_x_start)
+        dst_y_start = max(0, -offset_y)
+        dst_y_stop = dst_y_start + (src_y_stop - src_y_start)
+        if src_x_start >= src_x_stop or src_y_start >= src_y_stop:
+            continue
+
+        source = data[src_y_start:src_y_stop, src_x_start:src_x_stop]
+        valid = np.isfinite(source)
+        target = total[dst_y_start:dst_y_stop, dst_x_start:dst_x_stop]
+        target += np.where(valid, source, 0.0)
+        count_target = counts[dst_y_start:dst_y_stop, dst_x_start:dst_x_stop]
+        count_target += valid
+
+    result = np.full((height, width), np.nan, dtype=np.float32)
+    np.divide(total, counts, out=result, where=counts > 0)
+    out_header = ref_header.copy()
+    for keyword in ("XTENSION", "PCOUNT", "GCOUNT", "EXTNAME"):
+        out_header.pop(keyword, None)
+    out_header["HISTORY"] = f"Mosaic assembled from {len(data_hdus)} aligned tiles using direct nanmean"
+    out_header["NINPUTS"] = (len(data_hdus), "Number of input tiles combined")
+    out_header["METHOD"] = ("aligned-grid + nanmean", "Mosaicking method")
+    out_header["IMGTYPE"] = ("mosaic", "Image type")
+    for i, fpath in enumerate(input_files, 1):
+        out_header[f"INFILE{i:02d}"] = (str(Path(fpath).name), f"Input tile {i}")
+    out_header["ORIGIN"] = "data.linea.org.br"
+    out_header["SOFTNAME"] = "LIneA Cutout Service"
+    out_header["SOFTVERS"] = __version__
+
+    return fits.PrimaryHDU(data=result, header=out_header)
+
+
 def _extract_data_hdus(hdul: fits.HDUList) -> list[tuple[int, fits.HDU]]:
     """Return list of (index, hdu) for extensions that carry data."""
     return [(i, h) for i, h in enumerate(hdul) if getattr(h, "data", None) is not None]
@@ -126,7 +226,8 @@ class AstrocutEngine(CutoutEngine):
         stencil_type = stencil.get("type", "circle")
 
         print(
-            f"[astrocut] run_cutout: source_id={source_id} band={band} output_format={output_format} color={color} rgb_bands={rgb_bands} persist={persist}"
+            f"[astrocut] run_cutout: source_id={source_id} band={band} "
+            f"output_format={output_format} color={color} rgb_bands={rgb_bands} persist={persist}"
         )
         print(f"[astrocut] run_cutout: stencil type={stencil_type} coordinate={coordinate} cutout_size={cutout_size}")
         print(f"[astrocut] run_cutout: input_files={input_files}")
