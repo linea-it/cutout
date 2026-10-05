@@ -12,6 +12,12 @@ _LOCATOR_CLASSES: tuple[type[FileLocator], ...] = (
 )
 
 
+def preload_file_indexes() -> None:
+    """Load every survey index in the current process."""
+    for cls in _LOCATOR_CLASSES:
+        cls().preload()
+
+
 def get_file_locator(survey_id: str, **kwargs) -> FileLocator:
     for cls in _LOCATOR_CLASSES:
         if survey_id in cls.survey_ids:

@@ -10,6 +10,7 @@ from cutout.service.surveys import DES_DR2_ID
 
 from .base import FileLocator
 from .models import FileDescriptor
+from .tile_cache import SpatialTileIndex, cached_spatial_index
 
 DEFAULT_TILE_LIST = Path("/app/cutout/service/discovery/dr2_tiles.csv")
 DEFAULT_TILES_ROOT = Path("/data/tiles/des_dr2")
@@ -25,6 +26,28 @@ class _TileBounds:
     dec_min: float
     dec_max: float
     archive_path: str
+
+
+def _load_des_tiles(path: Path) -> list[_TileBounds]:
+    rows: list[_TileBounds] = []
+    with path.open("r", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle, delimiter=";")
+        for row in reader:
+            if not all(key in row for key in CSV_FIELDS):
+                print(f"[DesDr2FileLocator._read_tiles] Skipping row due to missing keys: {row}")
+                continue
+            rows.append(
+                _TileBounds(
+                    tile_id=row["tilename"],
+                    ra_min=float(row["rall"]),
+                    dec_min=float(row["decll"]),
+                    ra_max=float(row["raur"]),
+                    dec_max=float(row["decur"]),
+                    archive_path=row.get("archive_path"),
+                )
+            )
+    print(f"[DesDr2FileLocator._read_tiles] read {len(rows)} tiles from {path}")
+    return rows
 
 
 @dataclass
@@ -43,64 +66,51 @@ class DesDr2FileLocator(FileLocator):
         if survey_id not in self.survey_ids:
             raise ValueError(f"Unsupported survey_id: {survey_id}")
 
+        return self._descriptors(self._matching_tiles(stencil), band)
+
+    def find_files_for_bands(
+        self,
+        *,
+        survey_id: str,
+        stencil: Stencil,
+        bands: list[str],
+    ) -> dict[str, list[FileDescriptor]]:
+        if survey_id not in self.survey_ids:
+            raise ValueError(f"Unsupported survey_id: {survey_id}")
+
+        tiles = self._matching_tiles(stencil)
+        return {band: self._descriptors(tiles, band) for band in bands}
+
+    def _matching_tiles(self, stencil: Stencil) -> list[_TileBounds]:
+        tiles = self._tile_index()
         ra_min, ra_max, dec_min, dec_max = stencil.axis_aligned_bounds()
+        return [
+            tiles.records[index]
+            for index in tiles.matching_indices(ra_min=ra_min, ra_max=ra_max, dec_min=dec_min, dec_max=dec_max)
+        ]
+
+    def _descriptors(self, tiles: list[_TileBounds], band: str | None) -> list[FileDescriptor]:
         descriptors: list[FileDescriptor] = []
-
-        try:
-            for tile in self._read_tiles():
-                if not self._intersects(tile, ra_min=ra_min, ra_max=ra_max, dec_min=dec_min, dec_max=dec_max):
-                    continue
-
-                print("Achou uma tile")
-                print(tile)
-                descriptor = FileDescriptor(
+        for tile in tiles:
+            descriptors.append(
+                FileDescriptor(
                     tile_id=tile.tile_id,
                     archive_path=tile.archive_path,
                     file_path=self._build_file_path(tile.archive_path, band),
                     band=band,
                 )
-                print(descriptor)
-                descriptors.append(descriptor)
-        except Exception as e:
-            print(f"[DesDr2FileLocator.find_files] Error while finding files: {e}")
-            raise
+            )
         return descriptors
 
-    def _read_tiles(self) -> list[_TileBounds]:
-        rows: list[_TileBounds] = []
-        with self.tile_list_path.open("r", encoding="utf-8") as f:
-            reader = csv.DictReader(f, delimiter=";")
-            for row in reader:
-                if not all(key in row for key in CSV_FIELDS):
-                    print(f"[DesDr2FileLocator._read_tiles] Skipping row due to missing keys: {row}")
-                    continue
-                rows.append(
-                    _TileBounds(
-                        tile_id=row["tilename"],
-                        ra_min=float(row["rall"]),
-                        dec_min=float(row["decll"]),
-                        ra_max=float(row["raur"]),
-                        dec_max=float(row["decur"]),
-                        archive_path=row.get("archive_path"),
-                    )
-                )
+    def _tile_index(self) -> SpatialTileIndex[_TileBounds]:
+        return cached_spatial_index(
+            self.tile_list_path,
+            _load_des_tiles,
+            lambda tile: (tile.ra_min, tile.ra_max, tile.dec_min, tile.dec_max),
+        )
 
-        print(f"[DesDr2FileLocator._read_tiles] read {len(rows)} tiles from {self.tile_list_path}")
-        return rows
-
-    @staticmethod
-    def _intersects(tile: _TileBounds, *, ra_min: float, ra_max: float, dec_min: float, dec_max: float) -> bool:
-        dec_overlap = tile.dec_min <= dec_max and tile.dec_max >= dec_min
-        if not dec_overlap:
-            return False
-        ra_overlap = tile.ra_min <= ra_max and tile.ra_max >= ra_min
-        if ra_overlap:
-            return True
-        if tile.ra_max > 360:
-            ra_overlap = (tile.ra_min - 360) <= ra_max and (tile.ra_max - 360) >= ra_min
-        if not ra_overlap and ra_min < 0:
-            ra_overlap = tile.ra_min <= (ra_max + 360) and tile.ra_max >= (ra_min + 360)
-        return ra_overlap
+    def preload(self) -> None:
+        self._tile_index()
 
     def _build_file_path(self, archive_path: str, band: str | None) -> Path | None:
         if not band:
