@@ -93,6 +93,23 @@ function buildSurveys() {
         options: SESSION_HIPS_OPTIONS,
       },
     },
+    {
+      id: "lsst_dp2",
+      label: "LSST DP2",
+      requireGroup: "lsst_dp2",
+      bands: ["u", "g", "r", "i", "z", "y"],
+      rgbPresets: ["gri", "riz", "izy"],
+      // Placeholder pointing (DP1 field). Replace when the DP2 HiPS footprint is known.
+      defaultRa: "53.096",
+      defaultDec: "-28.024",
+      hips: {
+        id: "LSST_DP2_IRG_LIneA",
+        name: "LSST DP2 IRG at LIneA",
+        url: "/data/releases/lsst/dp2/images/hips",
+        cooFrame: "equatorial",
+        options: SESSION_HIPS_OPTIONS,
+      },
+    },
   ];
 }
 
