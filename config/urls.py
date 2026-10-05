@@ -8,7 +8,7 @@ from django.views.generic import TemplateView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.authtoken.views import obtain_auth_token
 
-from cutout.service.hips import lsst_dp1_hips
+from cutout.service.hips import lsst_dp1_hips, lsst_dp2_hips
 from cutout.users.views import linea_login
 
 urlpatterns = [
@@ -24,6 +24,11 @@ urlpatterns = [
         "data/releases/lsst/dp1/images/hips/<path:relpath>",
         lsst_dp1_hips,
         name="hips-lsst-dp1",
+    ),
+    path(
+        "data/releases/lsst/dp2/images/hips/<path:relpath>",
+        lsst_dp2_hips,
+        name="hips-lsst-dp2",
     ),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 

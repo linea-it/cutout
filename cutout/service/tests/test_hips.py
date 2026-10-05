@@ -4,8 +4,8 @@ from django.http import Http404
 from django.test import RequestFactory
 from django.urls import reverse
 
-from cutout.service.hips import lsst_dp1_hips
-from cutout.service.surveys import LSST_DP1_GROUP
+from cutout.service.hips import lsst_dp1_hips, lsst_dp2_hips
+from cutout.service.surveys import LSST_DP1_GROUP, LSST_DP2_GROUP
 
 pytestmark = pytest.mark.django_db
 
@@ -40,6 +40,28 @@ def test_hips_with_group_serves_file(user, settings, tmp_path):
     response = lsst_dp1_hips(request, "properties")
     assert response.status_code == 200
     assert b"".join(response.streaming_content) == b"hips ok"
+
+
+def test_dp2_hips_with_group_serves_file(user, settings, tmp_path):
+    settings.CUTOUT_HIPS_LSST_DP2_ROOT = str(tmp_path)
+    (tmp_path / "properties").write_text("dp2")
+    group, _ = Group.objects.get_or_create(name=LSST_DP2_GROUP)
+    user.groups.add(group)
+    request = RequestFactory().get(reverse("hips-lsst-dp2", kwargs={"relpath": "properties"}))
+    request.user = user
+    response = lsst_dp2_hips(request, "properties")
+    assert response.status_code == 200
+    assert b"".join(response.streaming_content) == b"dp2"
+
+
+def test_dp2_hips_missing_root_is_404(user, settings, tmp_path):
+    settings.CUTOUT_HIPS_LSST_DP2_ROOT = str(tmp_path / "missing")
+    group, _ = Group.objects.get_or_create(name=LSST_DP2_GROUP)
+    user.groups.add(group)
+    request = RequestFactory().get(reverse("hips-lsst-dp2", kwargs={"relpath": "properties"}))
+    request.user = user
+    with pytest.raises(Http404):
+        lsst_dp2_hips(request, "properties")
 
 
 def test_hips_rejects_path_traversal(user, settings, tmp_path):
