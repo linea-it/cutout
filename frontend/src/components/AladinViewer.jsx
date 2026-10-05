@@ -55,21 +55,18 @@ function clampExploreFovDeg(fovDeg) {
   return Math.min(MAX_FOV_DEG, Math.max(MIN_FOV_DEG, fovDeg));
 }
 
-function radiusToFovDeg(radiusArcmin) {
-  return clampExploreFovDeg((2 * Number(radiusArcmin)) / 60);
+function radiusToFovDeg(radiusArcmin, container, aladin) {
+  const diameterDeg = (2 * Number(radiusArcmin)) / 60;
+  const canvas = container?.querySelector?.("canvas");
+  const width = canvas?.clientWidth || container?.clientWidth || aladin?.view?.width;
+  const height = canvas?.clientHeight || container?.clientHeight || aladin?.view?.height;
+  const aspect = Number(width) > 0 && Number(height) > 0 ? Number(width) / Number(height) : 1;
+  // Aladin's scalar FoV follows the wide axis. Expand it so the short axis
+  // contains the square FITS footprint, with a small margin so the stroke is
+  // not clipped at the canvas edge.
+  return clampExploreFovDeg(diameterDeg * Math.max(1, aspect) * 1.08);
 }
 
-function themePaddingPx(theme) {
-  const raw = theme.spacing(2);
-  const value = typeof raw === "number" ? raw : Number.parseFloat(raw);
-  return Number.isFinite(value) ? value : 16;
-}
-
-function fovToRadiusArcmin(fovDeg) {
-  return Number((((Number(fovDeg) * 60) / 2)).toFixed(3));
-}
-
-/** On-sky square (astrocut): equal angular size in RA and Dec. ΔRA is /cos(Dec). */
 function stampSquareVertices(raDeg, decDeg, radiusArcmin) {
   const halfDeg = Number(radiusArcmin) / 60;
   const ra0 = Number(raDeg);
@@ -83,66 +80,6 @@ function stampSquareVertices(raDeg, decDeg, radiusArcmin) {
     [ra0 - halfRa, dec0 + halfDeg],
     [ra0 - halfRa, dec0 - halfDeg],
   ];
-}
-
-function readFovDeg(aladin) {
-  const fov = aladin && typeof aladin.getFov === "function" ? aladin.getFov() : null;
-  if (Array.isArray(fov)) {
-    const lon = Number(fov[0]);
-    const lat = Number(fov[1]);
-    return [lon, Number.isFinite(lat) && lat > 0 ? lat : lon];
-  }
-  const value = Number(fov);
-  return [value, value];
-}
-
-function viewRadiusArcmin(aladin) {
-  const [fovLon] = readFovDeg(aladin);
-  return fovToRadiusArcmin(fovLon);
-}
-
-function overlayRadiusArcmin(aladin, formRadiusRaw) {
-  const formRadius = Number(formRadiusRaw);
-  const viewRadius = viewRadiusArcmin(aladin);
-  if (Number.isFinite(viewRadius) && viewRadius >= MAX_CUTOUT_RADIUS_ARCMIN) {
-    return MAX_CUTOUT_RADIUS_ARCMIN;
-  }
-  if (Number.isFinite(viewRadius) && viewRadius > 0) {
-    return viewRadius;
-  }
-  if (!Number.isFinite(formRadius) || formRadius <= 0) {
-    return MAX_CUTOUT_RADIUS_ARCMIN;
-  }
-  return Math.min(formRadius, MAX_CUTOUT_RADIUS_ARCMIN);
-}
-
-/** Pixel inset only while the stamp fills the view. At/past 30' use the true on-sky size. */
-function paddedOverlayRadiusArcmin(aladin, container, formRadiusRaw, padPx) {
-  const scientific = overlayRadiusArcmin(aladin, formRadiusRaw);
-  const viewRadius = viewRadiusArcmin(aladin);
-  if (viewRadius >= MAX_CUTOUT_RADIUS_ARCMIN || scientific >= MAX_CUTOUT_RADIUS_ARCMIN) {
-    return MAX_CUTOUT_RADIUS_ARCMIN;
-  }
-  if (!aladin || !container) {
-    return scientific;
-  }
-  const [fovLon, fovLat] = readFovDeg(aladin);
-  const fovMin = Math.min(fovLon, fovLat);
-  const shortPx = Math.min(container.clientWidth, container.clientHeight);
-  if (!Number.isFinite(fovMin) || fovMin <= 0 || shortPx <= 0) {
-    return scientific;
-  }
-  const maxPx = shortPx - 2 * padPx;
-  if (maxPx <= 1) {
-    return scientific;
-  }
-  const sideDeg = (2 * scientific) / 60;
-  const stampPx = (sideDeg * shortPx) / fovMin;
-  if (stampPx <= maxPx) {
-    return scientific;
-  }
-  const drawnSideDeg = (maxPx * fovMin) / shortPx;
-  return (drawnSideDeg * 60) / 2;
 }
 
 function addOverlayShape(overlay, shape) {
@@ -190,12 +127,10 @@ function redrawCutoutStamp(aladin, overlay, stamp) {
   if (!Number.isFinite(raVal) || !Number.isFinite(decVal)) {
     return;
   }
-  const radius = paddedOverlayRadiusArcmin(
-    aladin,
-    stamp.container,
-    stamp.radiusArcmin,
-    stamp.padPx || 16,
-  );
+  const radius = Number(stamp.radiusArcmin);
+  if (!Number.isFinite(radius) || radius <= 0) {
+    return;
+  }
   const drawKey = `${stamp.mode}:${raVal.toFixed(5)}:${decVal.toFixed(5)}:${radius.toFixed(4)}:${stamp.color}`;
   if (overlayDrawKeys.get(overlay) === drawKey) {
     return;
@@ -230,9 +165,6 @@ export default function AladinViewer({
 }) {
   const theme = useTheme();
   const overlayColor = theme.palette.primary.main;
-  const overlayPadPx = themePaddingPx(theme);
-  const overlayPadPxRef = useRef(overlayPadPx);
-  overlayPadPxRef.current = overlayPadPx;
   const containerRef = useRef(null);
   const aladinRef = useRef(null);
   const surveyRef = useRef(null);
@@ -255,8 +187,6 @@ export default function AladinViewer({
     radiusArcmin,
     color: overlayColor,
     mode: overlayMode,
-    container: containerRef.current,
-    padPx: overlayPadPx,
   };
 
   useEffect(() => {
@@ -276,8 +206,6 @@ export default function AladinViewer({
         ...stampRef.current,
         ra: raNow,
         dec: decNow,
-        container: containerRef.current,
-        padPx: overlayPadPxRef.current,
       });
     };
     const queueStampRedraw = () => {
@@ -334,6 +262,7 @@ export default function AladinViewer({
         const initialDec = Number.isFinite(Number(dec)) ? Number(dec) : 2.15;
         const initialFov = radiusToFovDeg(
           Math.min(Number(radiusArcmin) || 1, MAX_CUTOUT_RADIUS_ARCMIN),
+          containerRef.current,
         );
         const aladin = A.aladin(containerRef.current, {
           // Never omit `survey`: Aladin would load DSS2 as a fallback.
@@ -404,6 +333,13 @@ export default function AladinViewer({
           overlayRef.current = overlay;
           redrawCutoutStamp(aladin, overlay, stampRef.current);
         }
+        aladin.setFov(
+          radiusToFovDeg(
+            Math.min(Number(radiusArcmin) || 1, MAX_CUTOUT_RADIUS_ARCMIN),
+            containerRef.current,
+            aladin,
+          ),
+        );
 
         const blockContextMenu = (event) => {
           event.preventDefault();
@@ -431,10 +367,6 @@ export default function AladinViewer({
         const pushRadiusFromAladin = () => {
           if (syncingRef.current) {
             return;
-          }
-          const radiusNow = viewRadiusArcmin(aladin);
-          if (radiusNow <= MAX_CUTOUT_RADIUS_ARCMIN) {
-            callbacksRef.current.onRadiusChange?.(Math.max(0.1, radiusNow));
           }
           zooming = true;
           window.clearTimeout(zoomSettleTimer);
@@ -523,13 +455,13 @@ export default function AladinViewer({
     try {
       aladin.gotoRaDec(raVal, decVal);
       if (radiusVal <= MAX_CUTOUT_RADIUS_ARCMIN) {
-        aladin.setFov(radiusToFovDeg(radiusVal));
+        aladin.setFov(radiusToFovDeg(radiusVal, containerRef.current, aladin));
       }
     } finally {
       window.setTimeout(() => {
         syncingRef.current = false;
         redrawCutoutStamp(aladinRef.current, overlayRef.current, stampRef.current);
-      }, 80);
+      }, 400);
     }
     // Apply form RA/Dec/radius only when the user clicks search.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -539,8 +471,25 @@ export default function AladinViewer({
     if (!readyRef.current || mapUnavailable) {
       return;
     }
-    redrawCutoutStamp(aladinRef.current, overlayRef.current, stampRef.current);
-  }, [overlayColor, overlayMode, mapUnavailable]);
+    const aladin = aladinRef.current;
+    const radiusVal = Number(radiusArcmin);
+    if (
+      aladin &&
+      overlayMode !== "off" &&
+      Number.isFinite(radiusVal) &&
+      radiusVal > 0 &&
+      radiusVal <= MAX_CUTOUT_RADIUS_ARCMIN
+    ) {
+      syncingRef.current = true;
+      aladin.setFov(radiusToFovDeg(radiusVal, containerRef.current, aladin));
+      window.setTimeout(() => {
+        syncingRef.current = false;
+        redrawCutoutStamp(aladinRef.current, overlayRef.current, stampRef.current);
+      }, 400);
+      return;
+    }
+    redrawCutoutStamp(aladin, overlayRef.current, stampRef.current);
+  }, [overlayColor, overlayMode, mapUnavailable, radiusArcmin]);
 
   return (
     <Box sx={{ width: "100%", height: "100%", minHeight: 0, flex: 1, display: "flex", flexDirection: "column" }}>
@@ -631,8 +580,8 @@ export default function AladinViewer({
                 <CropSquareIcon fontSize="small" />
               </ToggleButton>
             </Tooltip>
-            <Tooltip title="Requested radius (circle)">
-              <ToggleButton value="circle" aria-label="Show circular radius overlay">
+            <Tooltip title="Requested radius reference (circle)">
+              <ToggleButton value="circle" aria-label="Show circular radius reference">
                 <RadioButtonUncheckedIcon fontSize="small" />
               </ToggleButton>
             </Tooltip>
