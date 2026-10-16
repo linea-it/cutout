@@ -1,6 +1,7 @@
 import logging
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth import logout as auth_logout
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.shortcuts import redirect, render
@@ -67,6 +68,12 @@ user_token_view = UserTokenView.as_view()
 def linea_login(request):
     """Página de login LIneA / Rubin (escolha do IdP)."""
     return render(request, "pages/linea_login.html")
+
+
+def logout_user(request):
+    """Encerra a sessão Django e volta para a home, sem tela de confirmação."""
+    auth_logout(request)
+    return redirect("home")
 
 
 def saml2_template_failure(request, exception=None, status=403, **kwargs):
