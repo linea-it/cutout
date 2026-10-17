@@ -4,6 +4,7 @@ from django.contrib.auth.models import AnonymousUser, Group
 from cutout.service.policies import (
     DesDr2AccessPolicy,
     LsstDp1AccessPolicy,
+    LsstDp2AccessPolicy,
     can_request_cutout,
     get_survey_access_policy,
 )
@@ -29,11 +30,22 @@ def test_lsst_dp1_policy_requires_group() -> None:
     assert policy.can_request_cutout(user=user, survey_id="lsst_dp1") is True
 
 
+def test_lsst_dp2_policy_requires_its_own_group() -> None:
+    policy = LsstDp2AccessPolicy()
+    user = UserFactory()
+    dp1, _ = Group.objects.get_or_create(name="lsst_dp1")
+    user.groups.add(dp1)
+    assert policy.can_request_cutout(user=user, survey_id="lsst_dp2") is False
+    dp2, _ = Group.objects.get_or_create(name="lsst_dp2")
+    user.groups.add(dp2)
+    assert policy.can_request_cutout(user=user, survey_id="lsst_dp2") is True
+
+
 def test_policy_registry_dispatches_by_survey() -> None:
     assert isinstance(get_survey_access_policy("des_dr2"), DesDr2AccessPolicy)
-    assert get_survey_access_policy("lsst_dp2") is None
     assert get_survey_access_policy("lsst_dp02") is None
     assert isinstance(get_survey_access_policy("lsst_dp1"), LsstDp1AccessPolicy)
+    assert isinstance(get_survey_access_policy("lsst_dp2"), LsstDp2AccessPolicy)
     assert get_survey_access_policy("private_survey") is None
 
 

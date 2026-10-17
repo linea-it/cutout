@@ -6,213 +6,107 @@ import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import CropSquareIcon from "@mui/icons-material/CropSquare";
+import ExploreOutlinedIcon from "@mui/icons-material/ExploreOutlined";
+import GridOnOutlinedIcon from "@mui/icons-material/GridOnOutlined";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
 import { useTheme } from "@mui/material/styles";
+import {
+  createOverlay,
+  createViewer,
+  destroyViewer,
+  fovForRadius,
+  getCenter,
+  loadAladinLite,
+  onViewer,
+  probeHipsProperties,
+  readRotationDeg,
+  redrawOverlay,
+  resetNorthUp,
+  resizeViewer,
+  setCooGrid,
+  setFov,
+  setPosition,
+  writeRotationDeg,
+} from "../integrations/aladin";
 
 // Cutout API still caps radius at 30'; Aladin FoV itself is free for exploring the footprint.
 const MAX_CUTOUT_RADIUS_ARCMIN = 30;
-const MIN_FOV_DEG = (2 * 0.1) / 60; // ~0.1' radius floor for zoom-in
-const MAX_FOV_DEG = 180;
 
-function loadAladinAssets() {
-  if (window.__aladinLiteLoading) {
-    return window.__aladinLiteLoading;
+function bindRightDragRotate(aladin, host) {
+  if (!aladin || !host) {
+    return () => {};
   }
-  if (window.A?.init) {
-    return window.A.init;
-  }
+  const drag = { active: false, lastAngle: 0, rotation: 0, frame: 0 };
 
-  window.__aladinLiteLoading = new Promise((resolve, reject) => {
-    // Aladin Lite v3 bundles styles in JS; aladin.min.css on /latest/ is 404.
+  const angleFromCenter = (event) => {
+    const box = host.getBoundingClientRect();
+    return (Math.atan2(event.clientY - (box.top + box.height / 2), event.clientX - (box.left + box.width / 2)) * 180) / Math.PI;
+  };
 
-    const scriptId = "aladin-lite-js";
-    const existing = document.getElementById(scriptId);
-    if (existing && window.A?.init) {
-      window.A.init.then(resolve).catch(reject);
+  const onContextMenu = (event) => {
+    event.preventDefault();
+  };
+
+  const onMouseDown = (event) => {
+    if (event.button !== 2) {
       return;
     }
+    event.preventDefault();
+    event.stopPropagation();
+    drag.active = true;
+    drag.lastAngle = angleFromCenter(event);
+    drag.rotation = readRotationDeg(aladin);
+  };
 
-    const script = document.createElement("script");
-    script.id = scriptId;
-    script.src = "https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js";
-    script.async = true;
-    script.onload = () => {
-      if (!window.A?.init) {
-        reject(new Error("Aladin Lite failed to initialize"));
-        return;
-      }
-      window.A.init.then(resolve).catch(reject);
-    };
-    script.onerror = () => reject(new Error("Failed to load Aladin Lite"));
-    document.head.appendChild(script);
-  });
-
-  return window.__aladinLiteLoading;
-}
-
-function clampExploreFovDeg(fovDeg) {
-  return Math.min(MAX_FOV_DEG, Math.max(MIN_FOV_DEG, fovDeg));
-}
-
-function radiusToFovDeg(radiusArcmin) {
-  return clampExploreFovDeg((2 * Number(radiusArcmin)) / 60);
-}
-
-function themePaddingPx(theme) {
-  const raw = theme.spacing(2);
-  const value = typeof raw === "number" ? raw : Number.parseFloat(raw);
-  return Number.isFinite(value) ? value : 16;
-}
-
-function fovToRadiusArcmin(fovDeg) {
-  return Number((((Number(fovDeg) * 60) / 2)).toFixed(3));
-}
-
-/** On-sky square (astrocut): equal angular size in RA and Dec. ΔRA is /cos(Dec). */
-function stampSquareVertices(raDeg, decDeg, radiusArcmin) {
-  const halfDeg = Number(radiusArcmin) / 60;
-  const ra0 = Number(raDeg);
-  const dec0 = Number(decDeg);
-  const cosDec = Math.cos((dec0 * Math.PI) / 180);
-  const halfRa = halfDeg / Math.max(Math.abs(cosDec), 1e-6);
-  return [
-    [ra0 - halfRa, dec0 - halfDeg],
-    [ra0 + halfRa, dec0 - halfDeg],
-    [ra0 + halfRa, dec0 + halfDeg],
-    [ra0 - halfRa, dec0 + halfDeg],
-    [ra0 - halfRa, dec0 - halfDeg],
-  ];
-}
-
-function readFovDeg(aladin) {
-  const fov = aladin && typeof aladin.getFov === "function" ? aladin.getFov() : null;
-  if (Array.isArray(fov)) {
-    const lon = Number(fov[0]);
-    const lat = Number(fov[1]);
-    return [lon, Number.isFinite(lat) && lat > 0 ? lat : lon];
-  }
-  const value = Number(fov);
-  return [value, value];
-}
-
-function viewRadiusArcmin(aladin) {
-  const [fovLon] = readFovDeg(aladin);
-  return fovToRadiusArcmin(fovLon);
-}
-
-function overlayRadiusArcmin(aladin, formRadiusRaw) {
-  const formRadius = Number(formRadiusRaw);
-  const viewRadius = viewRadiusArcmin(aladin);
-  if (Number.isFinite(viewRadius) && viewRadius >= MAX_CUTOUT_RADIUS_ARCMIN) {
-    return MAX_CUTOUT_RADIUS_ARCMIN;
-  }
-  if (Number.isFinite(viewRadius) && viewRadius > 0) {
-    return viewRadius;
-  }
-  if (!Number.isFinite(formRadius) || formRadius <= 0) {
-    return MAX_CUTOUT_RADIUS_ARCMIN;
-  }
-  return Math.min(formRadius, MAX_CUTOUT_RADIUS_ARCMIN);
-}
-
-/** Pixel inset only while the stamp fills the view. At/past 30' use the true on-sky size. */
-function paddedOverlayRadiusArcmin(aladin, container, formRadiusRaw, padPx) {
-  const scientific = overlayRadiusArcmin(aladin, formRadiusRaw);
-  const viewRadius = viewRadiusArcmin(aladin);
-  if (viewRadius >= MAX_CUTOUT_RADIUS_ARCMIN || scientific >= MAX_CUTOUT_RADIUS_ARCMIN) {
-    return MAX_CUTOUT_RADIUS_ARCMIN;
-  }
-  if (!aladin || !container) {
-    return scientific;
-  }
-  const [fovLon, fovLat] = readFovDeg(aladin);
-  const fovMin = Math.min(fovLon, fovLat);
-  const shortPx = Math.min(container.clientWidth, container.clientHeight);
-  if (!Number.isFinite(fovMin) || fovMin <= 0 || shortPx <= 0) {
-    return scientific;
-  }
-  const maxPx = shortPx - 2 * padPx;
-  if (maxPx <= 1) {
-    return scientific;
-  }
-  const sideDeg = (2 * scientific) / 60;
-  const stampPx = (sideDeg * shortPx) / fovMin;
-  if (stampPx <= maxPx) {
-    return scientific;
-  }
-  const drawnSideDeg = (maxPx * fovMin) / shortPx;
-  return (drawnSideDeg * 60) / 2;
-}
-
-function addOverlayShape(overlay, shape) {
-  if (typeof overlay.addFootprints === "function") {
-    overlay.addFootprints(Array.isArray(shape) ? shape : [shape]);
-  } else if (typeof overlay.add === "function") {
-    overlay.add(shape);
-  }
-}
-
-const overlayDrawKeys = new WeakMap();
-
-function refreshAladin(aladin) {
-  if (!aladin) {
-    return;
-  }
-  if (aladin.view && typeof aladin.view.requestRedraw === "function") {
-    aladin.view.requestRedraw();
-  } else if (typeof aladin.resize === "function") {
-    aladin.resize();
-  }
-}
-
-function redrawCutoutStamp(aladin, overlay, stamp) {
-  const A = window.A;
-  if (!aladin || !overlay || !A) {
-    return;
-  }
-  if (!stamp.mode || stamp.mode === "off") {
-    if (typeof overlay.removeAll === "function") {
-      overlay.removeAll();
+  const onMouseMove = (event) => {
+    if (!drag.active) {
+      return;
     }
-    overlayDrawKeys.set(overlay, "off");
-    if (typeof overlay.hide === "function") {
-      overlay.hide();
+    event.preventDefault();
+    const angle = angleFromCenter(event);
+    let delta = angle - drag.lastAngle;
+    if (delta > 180) {
+      delta -= 360;
+    } else if (delta < -180) {
+      delta += 360;
     }
-    refreshAladin(aladin);
-    return;
-  }
-  if (typeof overlay.show === "function") {
-    overlay.show();
-  }
-  const raVal = Number(stamp.ra);
-  const decVal = Number(stamp.dec);
-  if (!Number.isFinite(raVal) || !Number.isFinite(decVal)) {
-    return;
-  }
-  const radius = paddedOverlayRadiusArcmin(
-    aladin,
-    stamp.container,
-    stamp.radiusArcmin,
-    stamp.padPx || 16,
-  );
-  const drawKey = `${stamp.mode}:${raVal.toFixed(5)}:${decVal.toFixed(5)}:${radius.toFixed(4)}:${stamp.color}`;
-  if (overlayDrawKeys.get(overlay) === drawKey) {
-    return;
-  }
-  overlayDrawKeys.set(overlay, drawKey);
-  if (typeof overlay.removeAll === "function") {
-    overlay.removeAll();
-  }
-  if (Object.prototype.hasOwnProperty.call(overlay, "color")) {
-    overlay.color = stamp.color;
-  }
-  const style = { color: stamp.color, fillOpacity: 0, lineWidth: 2 };
-  if (stamp.mode === "circle" && typeof A.circle === "function") {
-    addOverlayShape(overlay, A.circle(raVal, decVal, radius / 60, style));
-  } else if (typeof A.polygon === "function") {
-    addOverlayShape(overlay, A.polygon(stampSquareVertices(raVal, decVal, radius), style));
-  }
+    drag.lastAngle = angle;
+    drag.rotation += delta;
+    if (!drag.frame) {
+      drag.frame = window.requestAnimationFrame(() => {
+        drag.frame = 0;
+        writeRotationDeg(aladin, drag.rotation);
+      });
+    }
+  };
+
+  const onMouseUp = () => {
+    drag.active = false;
+    if (drag.frame) {
+      window.cancelAnimationFrame(drag.frame);
+      drag.frame = 0;
+      writeRotationDeg(aladin, drag.rotation);
+    }
+  };
+
+  host.addEventListener("contextmenu", onContextMenu, true);
+  host.addEventListener("mousedown", onMouseDown, true);
+  window.addEventListener("mousemove", onMouseMove, true);
+  window.addEventListener("mouseup", onMouseUp, true);
+  window.addEventListener("blur", onMouseUp);
+
+  return () => {
+    drag.active = false;
+    if (drag.frame) {
+      window.cancelAnimationFrame(drag.frame);
+    }
+    host.removeEventListener("contextmenu", onContextMenu, true);
+    host.removeEventListener("mousedown", onMouseDown, true);
+    window.removeEventListener("mousemove", onMouseMove, true);
+    window.removeEventListener("mouseup", onMouseUp, true);
+    window.removeEventListener("blur", onMouseUp);
+  };
 }
 
 /**
@@ -230,12 +124,8 @@ export default function AladinViewer({
 }) {
   const theme = useTheme();
   const overlayColor = theme.palette.primary.main;
-  const overlayPadPx = themePaddingPx(theme);
-  const overlayPadPxRef = useRef(overlayPadPx);
-  overlayPadPxRef.current = overlayPadPx;
   const containerRef = useRef(null);
   const aladinRef = useRef(null);
-  const surveyRef = useRef(null);
   const overlayRef = useRef(null);
   const stampRef = useRef({ ra, dec, radiusArcmin, color: overlayColor });
   const syncingRef = useRef(false);
@@ -243,6 +133,7 @@ export default function AladinViewer({
   const [mapLoading, setMapLoading] = useState(true);
   const [mapUnavailable, setMapUnavailable] = useState(false);
   const [overlayMode, setOverlayMode] = useState("off");
+  const [showCooGrid, setShowCooGrid] = useState(false);
   const callbacksRef = useRef({ onCenterChange, onRadiusChange });
 
   useEffect(() => {
@@ -255,29 +146,28 @@ export default function AladinViewer({
     radiusArcmin,
     color: overlayColor,
     mode: overlayMode,
-    container: containerRef.current,
-    padPx: overlayPadPx,
   };
 
   useEffect(() => {
     let cancelled = false;
     let resizeObserver;
+    let unbindRightDragRotate = () => {};
     let overlayRaf = 0;
     let zoomSettleTimer = 0;
     let centerSettleTimer = 0;
+    let resizeRaf = 0;
     let zooming = false;
+    let unsubscribePosition = () => {};
+    let unsubscribeZoom = () => {};
     const drawStampNow = () => {
-      const aladin = aladinRef.current;
-      if (!aladin || typeof aladin.getRaDec !== "function") {
+      const center = getCenter(aladinRef.current);
+      if (!center) {
         return;
       }
-      const [raNow, decNow] = aladin.getRaDec();
-      redrawCutoutStamp(aladin, overlayRef.current, {
+      redrawOverlay(aladinRef.current, overlayRef.current, {
         ...stampRef.current,
-        ra: raNow,
-        dec: decNow,
-        container: containerRef.current,
-        padPx: overlayPadPxRef.current,
+        ra: center[0],
+        dec: center[1],
       });
     };
     const queueStampRedraw = () => {
@@ -304,21 +194,7 @@ export default function AladinViewer({
       }
     };
 
-    const propertiesUrl = `${String(hips?.url || "").replace(/\/$/, "")}/properties`;
-    const fetchOpts = {
-      credentials: hips?.options?.requestCredentials === "include" ? "include" : "omit",
-      mode: hips?.options?.requestMode === "same-origin" ? "same-origin" : "cors",
-    };
-
-    Promise.all([
-      loadAladinAssets(),
-      hips?.url
-        ? fetch(propertiesUrl, fetchOpts).then(
-            (response) => response,
-            () => ({ ok: false, status: 0 }),
-          )
-        : Promise.resolve({ ok: false, status: 0 }),
-    ])
+    Promise.all([loadAladinLite(), probeHipsProperties(hips)])
       .then(([, propertiesResponse]) => {
         if (cancelled || !containerRef.current || aladinRef.current) {
           markReady();
@@ -329,88 +205,26 @@ export default function AladinViewer({
           markReady();
           return;
         }
-        const A = window.A;
         const initialRa = Number.isFinite(Number(ra)) ? Number(ra) : 0.5;
         const initialDec = Number.isFinite(Number(dec)) ? Number(dec) : 2.15;
-        const initialFov = radiusToFovDeg(
-          Math.min(Number(radiusArcmin) || 1, MAX_CUTOUT_RADIUS_ARCMIN),
-        );
-        const aladin = A.aladin(containerRef.current, {
-          // Never omit `survey`: Aladin would load DSS2 as a fallback.
-          survey: hips.url,
-          fov: initialFov,
-          target: `${initialRa} ${initialDec}`,
-          cooFrame: "ICRSd",
-          backgroundColor: "rgb(0, 0, 0)",
-          showReticle: true,
-          showZoomControl: true,
-          showFullscreenControl: false,
-          showLayersControl: false,
-          showGotoControl: false,
-          showCooGridControl: false,
-          showProjectionControl: false,
-          showFrame: false,
-          showFov: false,
-          showCooLocation: false,
-          showSimbadPointerControl: false,
-          showShareControl: false,
-          showSettingsControl: false,
-          showContextMenu: false,
-          showStatusBar: false,
+        const initialRadius = Math.min(Number(radiusArcmin) || 1, MAX_CUTOUT_RADIUS_ARCMIN);
+        const aladin = createViewer(containerRef.current, {
+          hips,
+          ra: initialRa,
+          dec: initialDec,
+          fov: fovForRadius(initialRadius, containerRef.current),
+          onSurveyError: () => {
+            if (!cancelled) {
+              setMapUnavailable(true);
+            }
+          },
         });
         aladinRef.current = aladin;
-
-        if (aladin.options) {
-          aladin.options.showContextMenu = false;
-        }
-        aladin.contextMenu = null;
-
-        const hipsSurvey = aladin.createImageSurvey(
-          hips.id,
-          hips.name,
-          hips.url,
-          hips.cooFrame || "equatorial",
-        );
-        aladin.setImageSurvey(hipsSurvey, {
-          imgFormat: "png",
-          ...(hips.options || {}),
-        });
-        surveyRef.current = hipsSurvey;
-        Promise.resolve(hipsSurvey).catch(() => {
-          if (cancelled) {
-            return;
-          }
-          try {
-            ["P/DSS2/color", "CDS/P/DSS2/color"].forEach((id) => {
-              aladin.removeImageLayer?.(id);
-            });
-            const base = aladin.getBaseImageLayer?.();
-            if (base) {
-              aladin.removeImageLayer?.(base);
-            }
-          } catch (err) {
-            // ignore
-          }
-          setMapUnavailable(true);
-        });
-
-        if (typeof A.graphicOverlay === "function") {
-          const overlay = A.graphicOverlay({
-            name: "cutout-stamp",
-            color: stampRef.current.color,
-            lineWidth: 2,
-          });
-          aladin.addOverlay(overlay);
-          overlayRef.current = overlay;
-          redrawCutoutStamp(aladin, overlay, stampRef.current);
-        }
-
-        const blockContextMenu = (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-        };
-        containerRef.current.addEventListener("contextmenu", blockContextMenu, true);
-        containerRef.current.__aladinBlockContextMenu = blockContextMenu;
+        overlayRef.current = createOverlay(aladin, stampRef.current.color);
+        redrawOverlay(aladin, overlayRef.current, stampRef.current);
+        setFov(aladin, fovForRadius(initialRadius, containerRef.current, aladin));
+        setCooGrid(aladin, false);
+        resetNorthUp(aladin);
 
         const pushFromAladin = () => {
           if (syncingRef.current) {
@@ -423,18 +237,16 @@ export default function AladinViewer({
             if (cancelled || syncingRef.current) {
               return;
             }
-            const [raNow, decNow] = aladin.getRaDec();
-            callbacksRef.current.onCenterChange?.(raNow, decNow);
+            const center = getCenter(aladin);
+            if (center) {
+              callbacksRef.current.onCenterChange?.(center[0], center[1]);
+            }
           }, 120);
         };
 
         const pushRadiusFromAladin = () => {
           if (syncingRef.current) {
             return;
-          }
-          const radiusNow = viewRadiusArcmin(aladin);
-          if (radiusNow <= MAX_CUTOUT_RADIUS_ARCMIN) {
-            callbacksRef.current.onRadiusChange?.(Math.max(0.1, radiusNow));
           }
           zooming = true;
           window.clearTimeout(zoomSettleTimer);
@@ -447,22 +259,25 @@ export default function AladinViewer({
           }, 40);
         };
 
-        aladin.on("positionChanged", pushFromAladin);
-        aladin.on("zoomChanged", pushRadiusFromAladin);
+        unsubscribePosition = onViewer(aladin, "positionChanged", pushFromAladin);
+        unsubscribeZoom = onViewer(aladin, "zoomChanged", pushRadiusFromAladin);
+        unbindRightDragRotate = bindRightDragRotate(aladin, containerRef.current);
         readyRef.current = true;
         markReady();
         window.requestAnimationFrame(() => {
-          if (!cancelled && typeof aladin.resize === "function") {
-            aladin.resize();
+          if (!cancelled) {
+            resizeViewer(aladin);
           }
         });
         if (typeof ResizeObserver !== "undefined" && containerRef.current) {
           resizeObserver = new ResizeObserver(() => {
-            if (cancelled) {
-              return;
-            }
-            if (typeof aladin.resize === "function") {
-              aladin.resize();
+            if (!cancelled && !resizeRaf) {
+              resizeRaf = window.requestAnimationFrame(() => {
+                resizeRaf = 0;
+                if (!cancelled) {
+                  resizeViewer(aladin);
+                }
+              });
             }
           });
           resizeObserver.observe(containerRef.current);
@@ -480,29 +295,34 @@ export default function AladinViewer({
     return () => {
       cancelled = true;
       readyRef.current = false;
+      unbindRightDragRotate();
+      unsubscribePosition();
+      unsubscribeZoom();
       if (overlayRaf) {
         window.cancelAnimationFrame(overlayRaf);
+      }
+      if (resizeRaf) {
+        window.cancelAnimationFrame(resizeRaf);
       }
       window.clearTimeout(zoomSettleTimer);
       window.clearTimeout(centerSettleTimer);
       if (resizeObserver) {
         resizeObserver.disconnect();
       }
-      if (containerRef.current) {
-        const blockContextMenu = containerRef.current.__aladinBlockContextMenu;
-        if (blockContextMenu) {
-          containerRef.current.removeEventListener("contextmenu", blockContextMenu, true);
-          delete containerRef.current.__aladinBlockContextMenu;
-        }
-        containerRef.current.innerHTML = "";
-      }
+      destroyViewer(containerRef.current);
       aladinRef.current = null;
-      surveyRef.current = null;
       overlayRef.current = null;
     };
     // Re-init when the survey HiPS URL changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hips?.url]);
+
+  useEffect(() => {
+    if (!readyRef.current) {
+      return;
+    }
+    setCooGrid(aladinRef.current, showCooGrid);
+  }, [showCooGrid]);
 
   useEffect(() => {
     if (!seekId) {
@@ -521,15 +341,15 @@ export default function AladinViewer({
 
     syncingRef.current = true;
     try {
-      aladin.gotoRaDec(raVal, decVal);
+      setPosition(aladin, raVal, decVal);
       if (radiusVal <= MAX_CUTOUT_RADIUS_ARCMIN) {
-        aladin.setFov(radiusToFovDeg(radiusVal));
+        setFov(aladin, fovForRadius(radiusVal, containerRef.current, aladin));
       }
     } finally {
       window.setTimeout(() => {
         syncingRef.current = false;
-        redrawCutoutStamp(aladinRef.current, overlayRef.current, stampRef.current);
-      }, 80);
+        redrawOverlay(aladinRef.current, overlayRef.current, stampRef.current);
+      }, 400);
     }
     // Apply form RA/Dec/radius only when the user clicks search.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -539,8 +359,25 @@ export default function AladinViewer({
     if (!readyRef.current || mapUnavailable) {
       return;
     }
-    redrawCutoutStamp(aladinRef.current, overlayRef.current, stampRef.current);
-  }, [overlayColor, overlayMode, mapUnavailable]);
+    const aladin = aladinRef.current;
+    const radiusVal = Number(radiusArcmin);
+    if (
+      aladin &&
+      overlayMode !== "off" &&
+      Number.isFinite(radiusVal) &&
+      radiusVal > 0 &&
+      radiusVal <= MAX_CUTOUT_RADIUS_ARCMIN
+    ) {
+      syncingRef.current = true;
+      setFov(aladin, fovForRadius(radiusVal, containerRef.current, aladin));
+      window.setTimeout(() => {
+        syncingRef.current = false;
+        redrawOverlay(aladinRef.current, overlayRef.current, stampRef.current);
+      }, 400);
+      return;
+    }
+    redrawOverlay(aladin, overlayRef.current, stampRef.current);
+  }, [overlayColor, overlayMode, mapUnavailable, radiusArcmin]);
 
   return (
     <Box sx={{ width: "100%", height: "100%", minHeight: 0, flex: 1, display: "flex", flexDirection: "column" }}>
@@ -554,21 +391,18 @@ export default function AladinViewer({
           borderRadius: 1,
           overflow: "hidden",
           bgcolor: "#000",
+          // Aladin Lite v3 class names, used only to hide built-in chrome.
           "& .aladin-container, & .aladin-box, & canvas": {
             border: "none !important",
             outline: "none !important",
             boxShadow: "none !important",
           },
-          "& .aladin-location, & .aladin-fov, & .aladin-status, & .aladin-context-menu": {
+          "& .aladin-location, & .aladin-fov, & .aladin-status, & .aladin-context-menu, & .aladin-grid-control": {
             display: "none !important",
           },
         }}
       >
-        <div
-          ref={containerRef}
-          onContextMenu={(event) => event.preventDefault()}
-          style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
-        />
+        <div ref={containerRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
         {mapUnavailable ? (
           <Box
             sx={{
@@ -602,41 +436,88 @@ export default function AladinViewer({
           />
         ) : null}
         {!mapUnavailable && !mapLoading ? (
-          <ToggleButtonGroup
-            exclusive
-            orientation="vertical"
-            size="small"
-            value={overlayMode}
-            onChange={(_event, next) => {
-              if (next) {
-                setOverlayMode(next);
-              }
-            }}
+          <Box
             sx={{
               position: "absolute",
               top: 8,
               right: 8,
-              zIndex: 3,
+              zIndex: 1200,
+              pointerEvents: "auto",
               bgcolor: "background.paper",
               boxShadow: 1,
+              borderRadius: 1,
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: "column",
             }}
           >
-            <Tooltip title="Hide cutout overlay">
-              <ToggleButton value="off" aria-label="Hide cutout overlay">
-                <VisibilityOffOutlinedIcon fontSize="small" />
+            <ToggleButtonGroup
+              exclusive
+              orientation="vertical"
+              size="small"
+              value={overlayMode}
+              onChange={(_event, next) => {
+                if (next) {
+                  setOverlayMode(next);
+                }
+              }}
+              sx={{
+                "& .MuiToggleButtonGroup-grouped": {
+                  margin: 0,
+                  border: 0,
+                  borderRadius: 0,
+                },
+              }}
+            >
+              <Tooltip disableInteractive title="Hide cutout overlay">
+                <ToggleButton value="off" aria-label="Hide cutout overlay">
+                  <VisibilityOffOutlinedIcon fontSize="small" />
+                </ToggleButton>
+              </Tooltip>
+              <Tooltip disableInteractive title="FITS stamp (square)">
+                <ToggleButton value="square" aria-label="Show square stamp overlay">
+                  <CropSquareIcon fontSize="small" />
+                </ToggleButton>
+              </Tooltip>
+              <Tooltip disableInteractive title="Requested radius reference (circle)">
+                <ToggleButton value="circle" aria-label="Show circular radius reference">
+                  <RadioButtonUncheckedIcon fontSize="small" />
+                </ToggleButton>
+              </Tooltip>
+            </ToggleButtonGroup>
+            <Box role="separator" sx={{ height: "1px", bgcolor: "divider", mx: 0.75 }} />
+            <Tooltip disableInteractive title={showCooGrid ? "Hide RA/Dec grid" : "Show RA/Dec grid"}>
+              <ToggleButton
+                size="small"
+                value="grid"
+                selected={showCooGrid}
+                aria-label={showCooGrid ? "Hide RA/Dec grid" : "Show RA/Dec grid"}
+                onClick={() => setShowCooGrid((prev) => !prev)}
+                sx={{ border: 0, borderRadius: 0 }}
+              >
+                <GridOnOutlinedIcon fontSize="small" />
               </ToggleButton>
             </Tooltip>
-            <Tooltip title="FITS stamp (square)">
-              <ToggleButton value="square" aria-label="Show square stamp overlay">
-                <CropSquareIcon fontSize="small" />
+            <Tooltip disableInteractive title="Reset north up. Right-drag the map to rotate.">
+              <ToggleButton
+                size="small"
+                value="north"
+                aria-label="Reset north up"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  resetNorthUp(aladinRef.current);
+                }}
+                sx={{ border: 0, borderRadius: 0 }}
+              >
+                <ExploreOutlinedIcon fontSize="small" />
               </ToggleButton>
             </Tooltip>
-            <Tooltip title="Requested radius (circle)">
-              <ToggleButton value="circle" aria-label="Show circular radius overlay">
-                <RadioButtonUncheckedIcon fontSize="small" />
-              </ToggleButton>
-            </Tooltip>
-          </ToggleButtonGroup>
+          </Box>
         ) : null}
       </Box>
     </Box>

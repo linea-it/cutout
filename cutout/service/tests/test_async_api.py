@@ -137,6 +137,43 @@ def test_async_job_detail_enforces_owner(user):
     assert response.status_code == 403
 
 
+def test_async_job_phase_and_result_enforce_owner(user, monkeypatch, tmp_path):
+    _patch_async_result_path(monkeypatch, tmp_path)
+    job = JobService().create(
+        user=user,
+        params=[
+            JobParameter(parameter_id="id", value="des_dr2"),
+            JobParameter(parameter_id="pos", value="CIRCLE 10 0 0.083333"),
+            JobParameter(parameter_id="band", value="g"),
+            JobParameter(parameter_id="format", value="fits"),
+        ],
+    )
+    result_file = tmp_path / "private.fits"
+    result_file.write_bytes(b"private data")
+    job.results.create(
+        result_id="private",
+        sequence=1,
+        size=result_file.stat().st_size,
+        mime_type="application/fits",
+        file_path=str(result_file),
+    )
+
+    client = APIClient()
+    client.force_authenticate(user=UserFactory())
+
+    assert client.get(reverse("api:async_job_phase", kwargs={"job_id": job.id})).status_code == 403
+    assert (
+        client.post(reverse("api:async_job_phase", kwargs={"job_id": job.id}), data={"PHASE": "ABORT"}).status_code
+        == 403
+    )
+    assert (
+        client.get(
+            reverse("api:async_job_result", kwargs={"job_id": job.id, "result_id": "private"}),
+        ).status_code
+        == 403
+    )
+
+
 def test_async_rejects_radius_above_30_arcmin(user, monkeypatch, tmp_path):
     """Async endpoint also rejects radii >= 30 arcmin."""
     _patch_async_result_path(monkeypatch, tmp_path)

@@ -13,9 +13,11 @@ from cutout.service.surveys import LSST_DP1_ID
 
 from .base import FileLocator
 from .models import FileDescriptor
+from .tile_cache import SpatialTileIndex, cached_spatial_index
 
 DEFAULT_TILE_LIST = Path("/app/cutout/service/discovery/lsst_dp1.csv")
 DEFAULT_TILES_ROOT = Path("/data/tiles/lsst_dp1")
+COADD_SUFFIX = "lsst_cells_v1_LSSTComCam_runs_DRP_DP1_DM-51335.fits"
 CSV_FIELDS = ("tract", "patch", "rall", "decll", "raur", "decur")
 SURVEY_IDS = frozenset({LSST_DP1_ID})
 BANDS = ("u", "g", "r", "i", "z", "y")
@@ -95,6 +97,26 @@ def _fits_aabb(path: Path) -> tuple[float, float, float, float]:
     return float(ras.min()), float(decs.min()), float(ras.max()), float(decs.max())
 
 
+def _load_lsst_tiles(path: Path) -> list[_PatchBounds]:
+    rows: list[_PatchBounds] = []
+    with path.open("r", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle, delimiter=";")
+        for row in reader:
+            if not all(key in row for key in CSV_FIELDS):
+                continue
+            rows.append(
+                _PatchBounds(
+                    tract=row["tract"],
+                    patch=row["patch"],
+                    ra_min=float(row["rall"]),
+                    dec_min=float(row["decll"]),
+                    ra_max=float(row["raur"]),
+                    dec_max=float(row["decur"]),
+                )
+            )
+    return rows
+
+
 def build_tile_csv(
     tiles_root: Path | None = None,
     output_path: Path | None = None,
@@ -129,6 +151,7 @@ class LsstDp1FileLocator(FileLocator):
     survey_ids = SURVEY_IDS
     tile_list_path: Path = DEFAULT_TILE_LIST
     tiles_root: Path = DEFAULT_TILES_ROOT
+    coadd_suffix: str = COADD_SUFFIX
 
     def find_files(
         self,
@@ -140,11 +163,32 @@ class LsstDp1FileLocator(FileLocator):
         if survey_id not in self.survey_ids:
             raise ValueError(f"Unsupported survey_id: {survey_id}")
 
+        return self._descriptors(self._matching_tiles(stencil), band)
+
+    def find_files_for_bands(
+        self,
+        *,
+        survey_id: str,
+        stencil: Stencil,
+        bands: list[str],
+    ) -> dict[str, list[FileDescriptor]]:
+        if survey_id not in self.survey_ids:
+            raise ValueError(f"Unsupported survey_id: {survey_id}")
+
+        tiles = self._matching_tiles(stencil)
+        return {band: self._descriptors(tiles, band) for band in bands}
+
+    def _matching_tiles(self, stencil: Stencil) -> list[_PatchBounds]:
+        tiles = self._tile_index()
         ra_min, ra_max, dec_min, dec_max = stencil.axis_aligned_bounds()
+        return [
+            tiles.records[index]
+            for index in tiles.matching_indices(ra_min=ra_min, ra_max=ra_max, dec_min=dec_min, dec_max=dec_max)
+        ]
+
+    def _descriptors(self, tiles: list[_PatchBounds], band: str | None) -> list[FileDescriptor]:
         descriptors: list[FileDescriptor] = []
-        for tile in self._read_tiles():
-            if not self._intersects(tile, ra_min=ra_min, ra_max=ra_max, dec_min=dec_min, dec_max=dec_max):
-                continue
+        for tile in tiles:
             descriptors.append(
                 FileDescriptor(
                     tile_id=tile.tile_id,
@@ -155,38 +199,15 @@ class LsstDp1FileLocator(FileLocator):
             )
         return descriptors
 
-    def _read_tiles(self) -> list[_PatchBounds]:
-        rows: list[_PatchBounds] = []
-        with self.tile_list_path.open("r", encoding="utf-8") as handle:
-            reader = csv.DictReader(handle, delimiter=";")
-            for row in reader:
-                if not all(key in row for key in CSV_FIELDS):
-                    continue
-                rows.append(
-                    _PatchBounds(
-                        tract=row["tract"],
-                        patch=row["patch"],
-                        ra_min=float(row["rall"]),
-                        dec_min=float(row["decll"]),
-                        ra_max=float(row["raur"]),
-                        dec_max=float(row["decur"]),
-                    )
-                )
-        return rows
+    def _tile_index(self) -> SpatialTileIndex[_PatchBounds]:
+        return cached_spatial_index(
+            self.tile_list_path,
+            _load_lsst_tiles,
+            lambda tile: (tile.ra_min, tile.ra_max, tile.dec_min, tile.dec_max),
+        )
 
-    @staticmethod
-    def _intersects(tile: _PatchBounds, *, ra_min: float, ra_max: float, dec_min: float, dec_max: float) -> bool:
-        dec_overlap = tile.dec_min <= dec_max and tile.dec_max >= dec_min
-        if not dec_overlap:
-            return False
-        ra_overlap = tile.ra_min <= ra_max and tile.ra_max >= ra_min
-        if ra_overlap:
-            return True
-        if tile.ra_max > 360:
-            ra_overlap = (tile.ra_min - 360) <= ra_max and (tile.ra_max - 360) >= ra_min
-        if not ra_overlap and ra_min < 0:
-            ra_overlap = tile.ra_min <= (ra_max + 360) and tile.ra_max >= (ra_min + 360)
-        return ra_overlap
+    def preload(self) -> None:
+        self._tile_index()
 
     def _build_file_path(self, tract: str, patch: str, band: str | None) -> Path | None:
         if not band:
@@ -194,12 +215,13 @@ class LsstDp1FileLocator(FileLocator):
         band = assert_safe_band(band)
         tract = assert_safe_path_component(tract, label="tract")
         patch = assert_safe_path_component(patch, label="patch")
-        band_dir = self.tiles_root / band
-        matches = sorted(band_dir.glob(f"deep_coadd_{tract}_{patch}_{band}_*.fits"))
-        if not matches:
+        path = self.tiles_root / band / f"deep_coadd_{tract}_{patch}_{band}_{self.coadd_suffix}"
+        try:
+            path.stat()
+        except FileNotFoundError:
             return None
         return assert_path_under_root(
-            matches[0],
+            path,
             self.tiles_root,
             label="tiles root",
             follow_symlinks=False,

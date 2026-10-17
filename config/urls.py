@@ -8,8 +8,8 @@ from django.views.generic import TemplateView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.authtoken.views import obtain_auth_token
 
-from cutout.service.hips import lsst_dp1_hips
-from cutout.users.views import linea_login
+from cutout.service.hips import lsst_dp1_hips, lsst_dp2_hips
+from cutout.users.views import linea_login, logout_user
 
 urlpatterns = [
     path("", TemplateView.as_view(template_name="pages/home.html"), name="home"),
@@ -20,10 +20,16 @@ urlpatterns = [
     # User management
     path("users/", include("cutout.users.urls", namespace="users")),
     path("accounts/", include("allauth.urls")),
+    path("logout/", logout_user, name="logout"),
     path(
         "data/releases/lsst/dp1/images/hips/<path:relpath>",
         lsst_dp1_hips,
         name="hips-lsst-dp1",
+    ),
+    path(
+        "data/releases/lsst/dp2/images/hips/<path:relpath>",
+        lsst_dp2_hips,
+        name="hips-lsst-dp2",
     ),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 

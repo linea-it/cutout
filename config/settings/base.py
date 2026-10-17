@@ -46,11 +46,10 @@ TIME_ZONE = "UTC"
 # https://docs.djangoproject.com/en/dev/ref/settings/#language-code
 LANGUAGE_CODE = "en-us"
 # https://docs.djangoproject.com/en/dev/ref/settings/#languages
-# from django.utils.translation import gettext_lazy as _
-# LANGUAGES = [
-#     ('en', _('English')),
-#     ('pt-br', _('Português')),
-# ]
+# LocaleMiddleware usa Accept-Language; sem LANGUAGES restrito o allauth cai em pt-BR.
+LANGUAGES = [
+    ("en", "English"),
+]
 # https://docs.djangoproject.com/en/dev/ref/settings/#site-id
 SITE_ID = 1
 # https://docs.djangoproject.com/en/dev/ref/settings/#use-i18n
@@ -367,6 +366,7 @@ CELERY_TASK_SEND_SENT_EVENT = True
 # django-allauth
 # ------------------------------------------------------------------------------
 ACCOUNT_ALLOW_REGISTRATION = env.bool("DJANGO_ACCOUNT_ALLOW_REGISTRATION", True)
+ACCOUNT_LOGOUT_ON_GET = True
 # https://django-allauth.readthedocs.io/en/latest/configuration.html
 ACCOUNT_AUTHENTICATION_METHOD = "username"
 # https://django-allauth.readthedocs.io/en/latest/configuration.html
@@ -417,6 +417,8 @@ SPECTACULAR_SETTINGS = {
 CUTOUT_RESULTS_ROOT = env.str("CUTOUT_RESULTS_ROOT", default="/data/results")
 # LSST DP1 HiPS tiles (same-origin for Aladin). Mount the archive at this path.
 CUTOUT_HIPS_LSST_DP1_ROOT = env.str("CUTOUT_HIPS_LSST_DP1_ROOT", default="/data/hips/lsst_dp1")
+# LSST DP2 HiPS tiles. 404 until the archive is mounted at this path.
+CUTOUT_HIPS_LSST_DP2_ROOT = env.str("CUTOUT_HIPS_LSST_DP2_ROOT", default="/data/hips/lsst_dp2")
 # All jobs (anonymous and authenticated) are destroyed after this many days.
 CUTOUT_JOB_MAX_AGE_DAYS = env.int("CUTOUT_JOB_MAX_AGE_DAYS", default=7)
 # Extra wait after destruction_time before deleting still-active (QUEUED/EXECUTING/…) jobs.

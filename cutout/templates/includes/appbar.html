@@ -53,14 +53,14 @@
                 <hr class="dropdown-divider" />
               </li>
               <li>
-                <a class="dropdown-item" href="{% url 'account_logout' %}">{% translate "Logout" %}</a>
+                <a class="dropdown-item" href="{% url 'logout' %}">{% translate "Logout" %}</a>
               </li>
             </ul>
           </div>
         {% else %}
           <a id="log-in-link"
              class="nav-link text-uppercase fw-bold"
-             href="{% if settings.AUTH_SAML2_ENABLED %}{{ settings.LINEA_LOGIN_URL }}{% else %}{% url 'admin:login' %}{% endif %}">{% translate "Sign In" %}</a>
+             href="{% if settings.AUTH_SAML2_ENABLED %}{% url 'login' %}{% else %}{% url 'admin:login' %}{% endif %}">{% translate "Sign In" %}</a>
         {% endif %}
       </div>
     </div>

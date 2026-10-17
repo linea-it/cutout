@@ -5,10 +5,12 @@ from typing import Any
 from .base import SurveyAccessPolicy
 from .des_dr2 import DesDr2AccessPolicy
 from .lsst_dp1 import LsstDp1AccessPolicy
+from .lsst_dp2 import LsstDp2AccessPolicy
 
 _POLICIES: tuple[SurveyAccessPolicy, ...] = (
     DesDr2AccessPolicy(),
     LsstDp1AccessPolicy(),
+    LsstDp2AccessPolicy(),
 )
 
 
