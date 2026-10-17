@@ -118,6 +118,9 @@ const MAX_RADIUS_ARCMIN = 30;
 const SYNC_RADIUS_LIMIT_ARCMIN = 5;
 const CARD_MIN_HEIGHT = 560;
 const ASYNC_POLL_MS = 3000;
+const ASYNC_POLL_MAX_MS = 30000;
+const REQUEST_TIMEOUT_MS = 30000;
+const SUCCESS_MESSAGE_MS = 5000;
 
 function arcminToDeg(arcmin) {
   return arcmin / 60;
@@ -370,11 +373,45 @@ export default function CutoutForm({
   const [downloadingId, setDownloadingId] = useState(null);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const jobsRef = useRef(jobs);
+  const requestControllersRef = useRef(new Set());
+
+  const request = useCallback(async (input, init = {}) => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    requestControllersRef.current.add(controller);
+    try {
+      return await fetch(input, { ...init, signal: controller.signal });
+    } catch (err) {
+      if (controller.signal.aborted) {
+        throw new Error("Request timed out. Check your connection and try again.");
+      }
+      throw err;
+    } finally {
+      window.clearTimeout(timeout);
+      requestControllersRef.current.delete(controller);
+    }
+  }, []);
 
   useEffect(() => {
     jobsRef.current = jobs;
     saveStoredJobs(jobs);
   }, [jobs]);
+
+  useEffect(() => {
+    if (!status) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setStatus(""), SUCCESS_MESSAGE_MS);
+    return () => window.clearTimeout(timer);
+  }, [status]);
+
+  useEffect(
+    () => () => {
+      requestControllersRef.current.forEach((controller) => controller.abort());
+      requestControllersRef.current.clear();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (surveys.some((s) => s.id === surveyId)) {
@@ -496,6 +533,7 @@ export default function CutoutForm({
 
   const addRegion = () => {
     setError("");
+    setStatus("");
     if (validationError) {
       setError(validationError);
       return;
@@ -548,6 +586,8 @@ export default function CutoutForm({
     if (!file) {
       return;
     }
+    setError("");
+    setStatus("");
     try {
       const text = await file.text();
       setCoordPaste(text);
@@ -594,6 +634,7 @@ export default function CutoutForm({
 
   const commitPreviewToQueue = () => {
     setError("");
+    setStatus("");
     if (!bulkPreview.length) {
       setError("Parse coordinates into the preview first.");
       return;
@@ -627,7 +668,7 @@ export default function CutoutForm({
   };
 
   const refreshJob = async (jobId) => {
-    const detailResponse = await fetch(`/api/async/${jobId}`, {
+    const detailResponse = await request(`/api/async/${jobId}`, {
       method: "GET",
       credentials: "same-origin",
     });
@@ -668,6 +709,8 @@ export default function CutoutForm({
     }
 
     let cancelled = false;
+    let timer = 0;
+    let consecutiveFailures = 0;
 
     const poll = async () => {
       const openJobs = jobsRef.current.filter((job) => isOpenPhase(job.phase));
@@ -684,6 +727,7 @@ export default function CutoutForm({
               jobId: job.jobId,
               phase: job.phase,
               errorMessage: err.message || "Polling failed",
+              pollingFailed: true,
             };
           }
         }),
@@ -691,24 +735,29 @@ export default function CutoutForm({
       if (cancelled) {
         return;
       }
+      const hadFailure = updates.some((update) => update.pollingFailed);
+      consecutiveFailures = hadFailure ? consecutiveFailures + 1 : 0;
       setJobs((prev) =>
         prev.map((job) => {
           const update = updates.find((item) => item.jobId === job.jobId);
           return update ? { ...job, ...update } : job;
         }),
       );
+      const delay = hadFailure
+        ? Math.min(ASYNC_POLL_MS * 2 ** consecutiveFailures, ASYNC_POLL_MAX_MS)
+        : ASYNC_POLL_MS;
+      timer = window.setTimeout(poll, delay);
     };
 
     poll();
-    const timer = setInterval(poll, ASYNC_POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      window.clearTimeout(timer);
     };
-  }, [openJobKey]);
+  }, [openJobKey, request]);
 
   const enqueueRegion = async (region) => {
-    const createResponse = await fetch("/api/async", {
+    const createResponse = await request("/api/async", {
       method: "POST",
       credentials: "same-origin",
       headers: {
@@ -742,7 +791,7 @@ export default function CutoutForm({
 
   const downloadSyncRegion = async (region) => {
     const query = buildBody(regionParams(region, { includePhase: false }));
-    const response = await fetch(`/api/sync?${query.toString()}`, {
+    const response = await request(`/api/sync?${query.toString()}`, {
       method: "GET",
       credentials: "same-origin",
     });
@@ -801,20 +850,25 @@ export default function CutoutForm({
     }
 
     setLoading(true);
+    const queuedRegionIds = new Set();
     try {
-      const createdJobs = [];
       for (const region of regions) {
         // Sequential enqueue keeps API/worker pressure predictable (RAM-safe serial cutouts).
         // eslint-disable-next-line no-await-in-loop
-        createdJobs.push(await enqueueRegion(region));
+        const created = await enqueueRegion(region);
+        queuedRegionIds.add(region.id);
+        setJobs((prev) => [created, ...prev]);
       }
-      setJobs((prev) => [...createdJobs, ...prev]);
       setRegions([]);
-      setStatus(
-        `${createdJobs.length} job(s) queued. Track downloads in the tray — safe to leave this page.`,
-      );
+      setStatus(`${queuedRegionIds.size} job(s) queued. Track downloads in the tray — safe to leave this page.`);
     } catch (err) {
-      setError(err.message || "Failed to queue async jobs.");
+      setRegions((prev) => prev.filter((region) => !queuedRegionIds.has(region.id)));
+      const completed = queuedRegionIds.size;
+      setError(
+        completed
+          ? `${err.message || "Failed to queue async jobs."} ${completed} job(s) were queued successfully.`
+          : err.message || "Failed to queue async jobs.",
+      );
     } finally {
       setLoading(false);
     }
@@ -834,7 +888,7 @@ export default function CutoutForm({
     if (!job.downloadUrl) {
       throw new Error(`Job #${job.jobId} has no download URL.`);
     }
-    const fileResponse = await fetch(job.downloadUrl, {
+    const fileResponse = await request(job.downloadUrl, {
       method: "GET",
       credentials: "same-origin",
     });
@@ -853,9 +907,11 @@ export default function CutoutForm({
   const handleDownloadJob = async (job) => {
     setDownloadingId(job.jobId);
     setError("");
+    setStatus("");
     try {
       const { blob, filename } = await fetchJobFile(job);
       triggerDownload(blob, filename);
+      setStatus(`Downloaded ${filename}.`);
     } catch (err) {
       setError(err.message || "Download failed.");
     } finally {
@@ -1096,9 +1152,15 @@ export default function CutoutForm({
                 )}
 
                 {(error || validationError) && (
-                  <Alert severity="error">{error || validationError}</Alert>
+                  <Alert severity="error" role="alert" onClose={error ? () => setError("") : undefined}>
+                    {error || validationError}
+                  </Alert>
                 )}
-                {status && !error && <Alert severity="success">{status}</Alert>}
+                {status && !error && (
+                  <Alert severity="success" role="status" onClose={() => setStatus("")}>
+                    {status}
+                  </Alert>
+                )}
 
                 <Divider />
 
