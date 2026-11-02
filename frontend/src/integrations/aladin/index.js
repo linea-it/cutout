@@ -1,7 +1,4 @@
 // Compatibility boundary for Aladin Lite v3.8.2. Keep Aladin-specific APIs here.
-const ALADIN_LITE_VERSION = "3.8.2";
-const ALADIN_LITE_SCRIPT_URL = `https://aladin.cds.unistra.fr/AladinLite/api/v3/${ALADIN_LITE_VERSION}/aladin.js`;
-const SCRIPT_ID = "aladin-lite-js";
 const MIN_FOV_DEG = (2 * 0.1) / 60;
 const MAX_FOV_DEG = 180;
 const GRID_COLOR = "#6fdc7a";
@@ -22,33 +19,13 @@ export function loadAladinLite() {
     return window.A.init;
   }
 
-  window.__cutoutAladinLiteLoading = new Promise((resolve, reject) => {
-    const existing = document.getElementById(SCRIPT_ID);
-    if (existing) {
-      existing.addEventListener("load", () => {
-        if (!window.A?.init) {
-          reject(new Error("Aladin Lite v3 API is unavailable"));
-          return;
-        }
-        window.A.init.then(resolve).catch(reject);
-      });
-      existing.addEventListener("error", () => reject(new Error("Failed to load Aladin Lite v3")));
-      return;
+  window.__cutoutAladinLiteLoading = import("aladin-lite").then((module) => {
+    const A = module.default;
+    if (!A?.init) {
+      throw new Error("Aladin Lite v3 API is unavailable");
     }
-
-    const script = document.createElement("script");
-    script.id = SCRIPT_ID;
-    script.src = ALADIN_LITE_SCRIPT_URL;
-    script.async = true;
-    script.onload = () => {
-      if (!window.A?.init) {
-        reject(new Error("Aladin Lite v3 API is unavailable"));
-        return;
-      }
-      window.A.init.then(resolve).catch(reject);
-    };
-    script.onerror = () => reject(new Error("Failed to load Aladin Lite v3"));
-    document.head.appendChild(script);
+    window.A = A;
+    return A.init;
   });
 
   return window.__cutoutAladinLiteLoading;
